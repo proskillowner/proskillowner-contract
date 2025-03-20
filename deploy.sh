@@ -31,4 +31,4 @@ source $env_file
 forge fmt
 
 PRIVATE_KEY=$PRIVATE_KEY \
-forge script script/Deploy.s.sol --rpc-url $RPC_URL --etherscan-api-key $ETHERSCAN_API_KEY --broadcast --verify
+forge script script/MIN.s.sol --rpc-url $RPC_URL --broadcast

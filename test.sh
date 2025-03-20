@@ -1,6 +1,7 @@
 #!/bin/bash
 
 env_file=".env"
+match_path=""
 verbosity=""
 
 while [[ "$#" -gt 0 ]]; do
@@ -24,8 +25,7 @@ while [[ "$#" -gt 0 ]]; do
             shift
             ;;
         *)
-            echo "Error: Unrecognized argument '$1'"
-            exit 1
+            extra_args+=("$1")
             ;;
     esac
     shift
@@ -40,6 +40,4 @@ source $env_file
 
 forge fmt
 
-UNISWAP_V2_FACTORY=$UNISWAP_V2_FACTORY \
-UNISWAP_V2_ROUTER=$UNISWAP_V2_ROUTER \
-forge test --rpc-url $RPC_URL $verbosity
+forge test --rpc-url $RPC_URL $verbosity "${extra_args[@]}"
