@@ -41,18 +41,23 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+if [[ -z "$env_file" ]]; then
+    echo "Error: Please provide env file using '--env-file'."
+    exit 1
+fi
+
 if [[ ! -f "$env_file" ]]; then
     echo "Error: Env file '$env_file' does not exist."
     exit 1
 fi
 
 if [[ -z "$address" ]]; then
-    echo "Error: No address provided. Use '--address' to specify an address."
+    echo "Error: Please provide address using '--address'."
     exit 1
 fi
 
 if [[ -z "$contract" ]]; then
-    echo "Error: No contract provided. Use '--contract' to specify a contract."
+    echo "Error: Please provide contract using '--contract'."
     exit 1
 fi
 

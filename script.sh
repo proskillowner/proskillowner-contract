@@ -51,8 +51,8 @@ if [[ ! -f "$script_file" ]]; then
     exit 1
 fi
 
-forge fmt
-
 source "$env_file"
+
+forge fmt
 
 forge script "$script_file" --rpc-url "$RPC_URL" --private-key "$PRIVATE_KEY" --etherscan-api-key "$ETHERSCAN_API_KEY" --broadcast --verify "${extra_args[@]}"
