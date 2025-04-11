@@ -1,7 +1,7 @@
 #!/bin/bash
 
 env_file=
-verbosity="-vv"
+script_file=
 extra_args=()
 
 while [[ "$#" -gt 0 ]]; do
@@ -15,11 +15,11 @@ while [[ "$#" -gt 0 ]]; do
             fi
             shift
             ;;
-        --verbosity)
+        --script-file)
             if [[ -n "$2" ]]; then
-                verbosity="$2"
+                script_file="$2"
             else
-                echo "Error: Missing verbosity after '--verbosity'"
+                echo "Error: Missing script file after '--script-file'"
                 exit 1
             fi
             shift
@@ -41,8 +41,18 @@ if [[ ! -f "$env_file" ]]; then
     exit 1
 fi
 
-source "$env_file"
+if [[ -z "$script_file" ]]; then
+    echo "Error: Please provide script file using '--script-file'."
+    exit 1
+fi
+
+if [[ ! -f "$script_file" ]]; then
+    echo "Error: Script file '$script_file' does not exist."
+    exit 1
+fi
 
 forge fmt
 
-forge test --rpc-url "$RPC_URL" "$verbosity" "${extra_args[@]}"
+source "$env_file"
+
+forge script "$script_file" --rpc-url "$RPC_URL" --private-key "$PRIVATE_KEY" --etherscan-api-key "$ETHERSCAN_API_KEY" --broadcast --verify "${extra_args[@]}"

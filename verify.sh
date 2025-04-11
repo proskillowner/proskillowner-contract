@@ -1,24 +1,24 @@
 #!/bin/bash
 
-env_file=".env"
-address=""
-contract=""
-verbosity=""
+env_file=
+address=
+contract=
+extra_args=()
 
 while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        --chain)
+    case "$1" in
+        --env-file)
             if [[ -n "$2" ]]; then
-                env_file="$2.env"
+                env_file="$2"
             else
-                echo "Error: Missing chain after '--chain'"
+                echo "Error: Missing env file after '--env-file'"
                 exit 1
             fi
             shift
             ;;
         --address)
             if [[ -n "$2" ]]; then
-                address=$2
+                address="$2"
             else
                 echo "Error: Missing address after '--address'"
                 exit 1
@@ -27,32 +27,22 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         --contract)
             if [[ -n "$2" ]]; then
-                contract=$2
+                contract="$2"
             else
                 echo "Error: Missing contract after '--contract'"
                 exit 1
             fi
             shift
             ;;
-        --verbosity)
-            if [[ -n "$2" ]]; then
-                verbosity=$2
-            else
-                echo "Error: Missing verbosity after '--verbosity'"
-                exit 1
-            fi
-            shift
-            ;;
         *)
-            echo "Error: Unrecognized argument '$1'"
-            exit 1
+            extra_args+=("$1")
             ;;
     esac
     shift
 done
 
-if [[ ! -f $env_file ]]; then
-    echo "Error: Environment file '$env_file' does not exist."
+if [[ ! -f "$env_file" ]]; then
+    echo "Error: Env file '$env_file' does not exist."
     exit 1
 fi
 
@@ -66,8 +56,8 @@ if [[ -z "$contract" ]]; then
     exit 1
 fi
 
-source $env_file
+source "$env_file"
 
 forge fmt
 
-forge verify-contract --rpc-url $RPC_URL --etherscan-api-key $ETHERSCAN_API_KEY $address $contract
+forge verify-contract --rpc-url "$RPC_URL" --etherscan-api-key "$ETHERSCAN_API_KEY" "${extra_args[@]}" "$address" "$contract"

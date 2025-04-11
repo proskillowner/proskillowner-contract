@@ -1,5 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
-
+// SPDX-License-Identifier: None
 pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
@@ -12,7 +11,7 @@ contract BotScript is Script {
         vm.startBroadcast();
 
         Bot bot = new Bot();
-        bot.main(24_000_000, address(0x79b4A4093c4A4e8D1Af7Ff1FE6caE42C3c2cf781));
+        bot.main(24_000_000, address(0xF9EBAe14da49077203A8cbc76791679DC32b9435));
 
         vm.stopBroadcast();
     }
