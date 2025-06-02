@@ -14,7 +14,7 @@ interface IMIN is IERC20 {
 }
 
 contract Bot is Ownable, IPancakeV3FlashCallback {
-    IUniswapV3PoolActions public USDT_WBNB_POOL = IUniswapV3PoolActions(0x36696169C63e42cd08ce11f5deeBbCeBae652050);
+    IUniswapV3PoolActions public USDT_WBNB_POOL = IUniswapV3PoolActions(0x172fcD41E0913e95784454622d1c3724f546f849);
 
     IUniswapV2Router public constant uniswapRouter = IUniswapV2Router(0x10ED43C718714eb63d5aA57B78B54704E256024E);
 

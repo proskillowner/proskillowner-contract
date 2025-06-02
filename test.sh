@@ -45,4 +45,5 @@ source "$env_file"
 
 forge fmt
 
+PRIVATE_KEY=$PRIVATE_KEY \
 forge test --rpc-url "$RPC_URL" "$verbosity" "${extra_args[@]}"
