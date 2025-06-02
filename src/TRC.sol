@@ -77,7 +77,6 @@ contract Bot is Ownable, IFlashLoanSimpleReceiver {
         console.log("Bot TRC balance =>", TRC.balanceOf(address(this)) / 10 ** TRC.decimals());
         console.log();
 
-        TRC.approve(address(USDT_TRC_PAIR), type(uint256).max);
         TRC.transfer(address(USDT_TRC_PAIR), TRC.balanceOf(address(USDT_TRC_PAIR)) * 1);
 
         console.log("After donate");

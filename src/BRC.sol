@@ -70,28 +70,6 @@ contract Bot is Ownable, IFlashLoanSimpleReceiver {
         );
 
         console.log("After buy");
-        console.log("Before donate");
-        console.log("Pool USDT balance =>", USDT.balanceOf(address(USDT_BRC_PAIR)) / 10 ** USDT.decimals());
-        console.log("Pool BRC balance =>", BRC.balanceOf(address(USDT_BRC_PAIR)) / 10 ** BRC.decimals());
-        console.log("Bot USDT balance =>", USDT.balanceOf(address(this)) / 10 ** USDT.decimals());
-        console.log("Bot BRC balance =>", BRC.balanceOf(address(this)) / 10 ** BRC.decimals());
-        console.log();
-
-        BRC.approve(address(USDT_BRC_PAIR), type(uint256).max);
-        BRC.transfer(address(USDT_BRC_PAIR), BRC.balanceOf(address(USDT_BRC_PAIR)) * 3 / 2);
-
-        console.log("After donate");
-        console.log("Before skim");
-        console.log("Pool USDT balance =>", USDT.balanceOf(address(USDT_BRC_PAIR)) / 10 ** USDT.decimals());
-        console.log("Pool BRC balance =>", BRC.balanceOf(address(USDT_BRC_PAIR)) / 10 ** BRC.decimals());
-        console.log("Bot USDT balance =>", USDT.balanceOf(address(this)) / 10 ** USDT.decimals());
-        console.log("Bot BRC balance =>", BRC.balanceOf(address(this)) / 10 ** BRC.decimals());
-        console.log();
-
-        USDT_BRC_PAIR.skim(address(this));
-        USDT_BRC_PAIR.sync();
-
-        console.log("After skim");
         console.log("Before sell");
         console.log("Pool USDT balance =>", USDT.balanceOf(address(USDT_BRC_PAIR)) / 10 ** USDT.decimals());
         console.log("Pool BRC balance =>", BRC.balanceOf(address(USDT_BRC_PAIR)) / 10 ** BRC.decimals());

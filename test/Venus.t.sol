@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import "../src/BRC.sol";
+import "../src/Venus.sol";
 
 contract BotTest is Test {
     Bot public bot;
@@ -13,6 +13,6 @@ contract BotTest is Test {
 
     function test() public {
         bot = new Bot();
-        bot.main(450_000);
+        bot.main(500_000, address(0xF9EBAe14da49077203A8cbc76791679DC32b9435));
     }
 }
