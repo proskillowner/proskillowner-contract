@@ -41,13 +41,8 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-if [[ -z "$env_file" ]]; then
-    echo "Error: Please provide env file using '--env-file'."
-    exit 1
-fi
-
-if [[ ! -f "$env_file" ]]; then
-    echo "Error: Env file '$env_file' does not exist."
+if [[ -z "$env_file" || ! -f "$env_file" ]]; then
+    echo "Error: Missing env file."
     exit 1
 fi
 

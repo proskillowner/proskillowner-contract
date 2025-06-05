@@ -1,753 +1,491 @@
 // SPDX-License-Identifier: MIT
+pragma solidity 0.8.2;
+pragma experimental ABIEncoderV2;
 
-pragma solidity 0.8.20;
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "./GovernorBravoInterfaces.sol";
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+contract GovernorBravoDelegate is Initializable,UUPSUpgradeable,GovernorBravoDelegateStorageV2, GovernorBravoEvents {
+    /// @notice Address of Investee.
+    mapping (uint256 => address) public investeeDetails;
+    
+    /// @notice Next investee to support
+    uint256 public nextInvestee;
 
-interface IDEXRouter {
-	function swapExactTokensForTokensSupportingFeeOnTransferTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external;
-	function addLiquidityETH(address token, uint256 amountTokenDesired, uint256 amountTokenMin, uint256 amountETHMin, address to, uint256 deadline) external payable returns (uint256 amountToken, uint256 amountETH, uint256 liquidity);
-	function swapExactTokensForETHSupportingFeeOnTransferTokens(uint256 amountIn, uint256 amountOutMin, address[] calldata path, address to, uint256 deadline) external;
-	function swapExactETHForTokensSupportingFeeOnTransferTokens(uint256 amountOutMin, address[] calldata path, address to, uint256 deadline) external payable;
-	function getAmountsOut(uint amountIn, address[] memory path) external view returns (uint[] memory amounts);
-}
+    /// @notice Next investee to fund
+    uint256 public nextInvesteeFund;
 
-contract BuidlFarm is Ownable, ReentrancyGuard {
-    using SafeERC20 for IERC20;
-	
-	IDEXRouter public router;
-	IERC20 public USDT;
-	IERC20 public BUIDL;
-	IERC20 public WETH;
-	
-	bool public bonusStatus;
-	
-	address public liquidityWallet;
-	
-	uint256 private minStaking;
-	uint256 private minStakingForLevelROI;
-	uint256 private dailyROI;
-	uint256 private divider;
-	uint256 private maxReturn;
-	uint256 private ROITimestamp;
-	
-    uint256 private totalStaked;
-	uint256 private totalWithdrawn;
-	uint256 private activeUsers;
-	
-	uint256[4] public levelWiseROI;
-	
-	uint256[10] public rankWiseReward;
-	uint256[10] public rankWiseMatching;
-	
-    struct User {
-		uint256 amount;
-		uint256 activeStake;
-		uint256 ROIStake;
-		uint256 withdraw;
-		uint256 pending;
-		uint256 directTeam;
-		uint256 stakeByDirect;
-		uint256 totalTeam;
-		uint256 stakeByTeam;
-		uint256 rankBonus;
-		uint256 levelIncome;
-		string referralCode;
-		string sponsorCode;
-		Stake[] stakes;
-		Withdraw[] withdraws;
-		address[] myTeam;
-    }
-	
-	struct Stake {
-		uint256 amount;
-		uint256 ROI;
-		uint256 withdraw;
-		uint256 stakeTime;
-		uint256 lastClaimedTime;
-    }
-	
-	struct Withdraw {
-		uint256 amount;
-		uint256 fromLevelROI;
-		uint256 withdrawTime;
-		uint256 withdrawType;
-    }
-	
-	struct LevelInfo {
-		uint256 buidler;
-		uint256 staked;
-		uint256 stakeCount;
-		uint256 stakers;
-    }
-	
-    mapping(address => User) public users;
-	mapping(string => address) public referralAddress;
-	mapping(address => mapping(uint256 => LevelInfo)) public levelInfo;
-	
-    event Staked(address indexed user, uint256 amount, uint256 time);
-	event RewardClaimed(address indexed user, uint256 amount, uint256 time);
-	event ClearStuckBalance(address indexed receiver);
-	event LiquidityWalletChanged(address wallet);
-	event DailyROIUpdated(uint256 ROI);
-	event EmergencyWithdrawal(address owner, uint256 balance);
-	event BonusStatusUpdated(bool status);
-	
-    constructor(address _owner) {
-		require(address(_owner) != address(0), "Zero address");
-		
-		router = IDEXRouter(0x10ED43C718714eb63d5aA57B78B54704E256024E);
-		
-	    USDT = IERC20(0x55d398326f99059fF775485246999027B3197955);
-		BUIDL = IERC20(0x4A67A307E6c6F35117ecfDD4A2767095EB4c2B4E);
-		WETH = IERC20(0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c);
-		
-		liquidityWallet = address(0x81e6717D1173bd252A994a5e98D2a6a065Aeff30);
-		
-		maxReturn = 3;
-		dailyROI = 60;
-		divider = 10000;
-		ROITimestamp = 86400;
-		
-		bonusStatus = true;
-		
-		minStaking = 10 * 10**18;
-		minStakingForLevelROI = 100 * 10**18;
-		
-		levelWiseROI = [2500, 3000, 4000, 5000];
-		
-		rankWiseReward = [50 * 10**18, 100 * 10**18, 250 * 10**18, 500 * 10**18, 1000 * 10**18, 2500 * 10**18, 5000 * 10**18, 10000 * 10**18, 25000 * 10**18, 50000 * 10**18];
-		rankWiseMatching = [1000 * 10**18, 2000 * 10**18, 5000 * 10**18, 10000 * 10**18, 20000 * 10**18, 50000 * 10**18, 100000 * 10**18, 200000 * 10**18, 500000 * 10**18, 1000000 * 10**18];
-		_transferOwnership(address(_owner));
-	}
-	
-	receive() external payable {}
-	
-    function stakeUSDT(uint256 amount, string memory sponsorCode, string memory referralCode) external nonReentrant{
-		require(bytes(sponsorCode).length > 0, "Sponsor code is not correct");
-		require(bytes(referralCode).length > 0, "Referral code is not correct");
-		require(amount % minStaking == 0 && amount >= minStaking, "Stake amount must be in multiples of the minimum stake amount");
-		require(msg.sender.code.length == 0, "Only EOA address is allowed");
-		require(referralAddress[sponsorCode] != address(msg.sender), "Sponsor and staker can't be same");
-		require(referralAddress[referralCode] == address(msg.sender) || referralAddress[referralCode] == address(0) , "Referral code already used by another user");
-		if(totalStaked > 0)
-		{
-			require(referralAddress[sponsorCode] != address(0), "You cannot join without a sponsor");
-		}
-		
-		require(USDT.balanceOf(address(msg.sender)) >= amount, "USDT is not available to stake");
-	    require(USDT.allowance(address(msg.sender), address(this)) >= amount, "Make sure to add enough USDT allowance");
-		
-		USDT.safeTransferFrom(msg.sender, address(this), amount);
-		
-		stake(msg.sender, amount, sponsorCode, referralCode);
-		
-		swapAndLiquifyUSDT(amount);
-        emit Staked(msg.sender, amount, block.timestamp);
-    }
-	
-	function stakeBUIDL(uint256 amount, string memory sponsorCode, string memory referralCode) external nonReentrant {
-		require(bytes(sponsorCode).length > 0, "Sponsor code is not correct");
-		require(bytes(referralCode).length > 0, "Referral code is not correct");
-		require(amount % minStaking == 0 && amount >= minStaking, "Stake amount must be in multiples of the minimum stake amount");
-		require(msg.sender.code.length == 0, "Only EOA address is allowed");
-		require(referralAddress[sponsorCode] != address(msg.sender), "Sponsor and staker can't be same");
-		require(referralAddress[referralCode] == address(msg.sender) || referralAddress[referralCode] == address(0) , "Referral code already used by another user");
-		if(totalStaked > 0)
-		{
-			require(referralAddress[sponsorCode] != address(0), "You cannot join without a sponsor");
-		}
-		
-		uint256 required = getQuotesBUIDL(amount);
-		
-		require(BUIDL.balanceOf(address(msg.sender)) >= required, "BUIDL is not available to stake");
-	    require(BUIDL.allowance(address(msg.sender), address(this)) >= required, "Make sure to add enough BUIDL allowance");
-		
-		BUIDL.safeTransferFrom(msg.sender, address(this), required);
-		
-		stake(msg.sender, amount, sponsorCode, referralCode);
-		
-		swapAndLiquifyBUIDL(required);
-        emit Staked(msg.sender, amount, block.timestamp);
-    }
-	
-	function stakeBNB(uint256 amount, string memory sponsorCode, string memory referralCode) external payable nonReentrant {
-		require(bytes(sponsorCode).length > 0, "Sponsor code is not correct");
-		require(bytes(referralCode).length > 0, "Referral code is not correct");
-		require(amount % minStaking == 0 && amount >= minStaking, "Stake amount must be in multiples of the minimum stake amount");
-		require(msg.sender.code.length == 0, "Only EOA address is allowed");
-		require(referralAddress[sponsorCode] != address(msg.sender), "Sponsor and staker can't be same");
-		require(referralAddress[referralCode] == address(msg.sender) || referralAddress[referralCode] == address(0) , "Referral code already used by another user");
-		if(totalStaked > 0)
-		{
-			require(referralAddress[sponsorCode] != address(0), "You cannot join without a sponsor");
-		}
-		
-		uint256 required = getQuotesBNB(amount);
-	    require(msg.value >= required, "BNB is not available to stake");
-		
-		stake(msg.sender, amount, sponsorCode, referralCode);
-		
-		swapAndLiquifyBNB(required);
-        emit Staked(msg.sender, amount, block.timestamp);
-    }
-	
-	function stake(address buidler, uint256 amount, string memory sponsorCode, string memory referralCode) internal {
-		User storage user = users[buidler];
-		
-		if(bytes(user.referralCode).length == 0)
-		{
-			referralAddress[referralCode] = msg.sender;
-			user.referralCode = referralCode;
-	    }
-		
-		if(bytes(user.sponsorCode).length == 0 && referralAddress[sponsorCode] != address(0))
-		{
-		    if(keccak256(bytes(users[referralAddress[sponsorCode]].sponsorCode)) != keccak256(bytes(user.referralCode)))
-			{
-				user.sponsorCode = sponsorCode;
-			}
-		}
-		
-		user.stakes.push(Stake(
-			amount,
-            dailyROI,   			
-			0, 
-			block.timestamp,
-			block.timestamp
-		));
+    /// @notice Treasury contract address
+    address public treasury;
 
-		bool newBuidler;
-		
-		if(user.amount == 0)
-		{
-			address sponsor = referralAddress[user.sponsorCode];
-			users[sponsor].myTeam.push(msg.sender);
-		}
-		if((user.amount * maxReturn) == user.withdraw) 
-		{
-			activeUsers++;
-			newBuidler = true;
-		}
-		
-		bool isUnique;
-		if(amount >= minStakingForLevelROI)
-		{
-			user.ROIStake++;
-			if(user.ROIStake == 1)
-			{
-				isUnique = true;
-			}
-		}
-		
-		user.amount += amount;
-		user.activeStake += amount;
-		totalStaked += amount;
-		addMatchingAmount(buidler, amount, newBuidler, isUnique);
-	}
-	
-	function pendingToWithdraw(address buidler) public view returns (uint256, uint256) {
-        User storage user = users[buidler];
-		
-        uint256 amount = 0;
-        uint256 dividend = 0;
-		uint256 pending = user.pending;
-		
-        for (uint256 i = 0; i < user.stakes.length; i++) {
-		
-			uint256 ROI = user.stakes[i].ROI;
-			uint256 investment = user.stakes[i].amount;
-			uint256 withdraw = user.stakes[i].withdraw;
-			uint256 lastClaimedTime = user.stakes[i].lastClaimedTime;
-			uint256 currentClaimedTime = block.timestamp;
-			
-			if(withdraw < (investment * maxReturn)) 
-			{
-				dividend = ((((investment * ROI) / divider) * (currentClaimedTime - lastClaimedTime)) / ROITimestamp);
-				
-				if((withdraw + dividend + pending) > (investment * maxReturn)) 
-				{
-					uint256 limitRemaining = (investment * maxReturn) - (withdraw);
-					uint256 pendingRemaining = pending > limitRemaining ? limitRemaining : pending;
-					
-					dividend = limitRemaining;
-					pending -= pendingRemaining;
-				}
-				else
-				{
-					dividend += pending;
-					pending = 0;
-				}
-				amount += dividend;
-			}
+    /// @notice The name of this contract
+    string public constant name = "Cult Governor Bravo";
+
+    /// @notice The minimum setable proposal threshold
+    uint public constant MIN_PROPOSAL_THRESHOLD = 50000e18; // 50,000 Cult
+
+    /// @notice The maximum setable proposal threshold
+    uint public constant MAX_PROPOSAL_THRESHOLD = 6000000000000e18; //6000000000000 Cult
+
+    /// @notice The minimum setable voting period
+    uint public constant MIN_VOTING_PERIOD = 1; // About 24 hours
+
+    /// @notice The max setable voting period
+    uint public constant MAX_VOTING_PERIOD = 80640; // About 2 weeks
+
+    /// @notice The min setable voting delay
+    uint public constant MIN_VOTING_DELAY = 1;
+
+    /// @notice The max setable voting delay
+    uint public constant MAX_VOTING_DELAY = 40320; // About 1 week
+
+    /// @notice The number of votes in support of a proposal required in order for a quorum to be reached and for a vote to succeed
+    uint public constant quorumVotes = 1000000000e18; // 1 Billion
+
+    /// @notice The maximum number of actions that can be included in a proposal
+    uint public constant proposalMaxOperations = 10; // 10 actions
+
+    /// @notice The EIP-712 typehash for the contract's domain
+    bytes32 public constant DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,uint256 chainId,address verifyingContract)");
+
+    /// @notice The EIP-712 typehash for the ballot struct used by the contract
+    bytes32 public constant BALLOT_TYPEHASH = keccak256("Ballot(uint256 proposalId,uint8 support)");
+
+    /**
+      * @notice Used to initialize the contract during delegator constructor
+      * @param timelock_ The address of the Timelock
+      * @param dCult_ The address of the dCULT token
+      * @param votingPeriod_ The initial voting period
+      * @param votingDelay_ The initial voting delay
+      * @param proposalThreshold_ The initial proposal threshold
+      */
+    function initialize(address timelock_, address dCult_, uint votingPeriod_, uint votingDelay_, uint proposalThreshold_, address treasury_) public initializer{
+        require(address(timelock) == address(0), "GovernorBravo::initialize: can only initialize once");
+        require(timelock_ != address(0), "GovernorBravo::initialize: invalid timelock address");
+        require(dCult_ != address(0), "GovernorBravo::initialize: invalid dCult address");
+        require(votingPeriod_ >= MIN_VOTING_PERIOD && votingPeriod_ <= MAX_VOTING_PERIOD, "GovernorBravo::initialize: invalid voting period");
+        require(votingDelay_ >= MIN_VOTING_DELAY && votingDelay_ <= MAX_VOTING_DELAY, "GovernorBravo::initialize: invalid voting delay");
+        require(proposalThreshold_ >= MIN_PROPOSAL_THRESHOLD && proposalThreshold_ <= MAX_PROPOSAL_THRESHOLD, "GovernorBravo::initialize: invalid proposal threshold");
+        require(treasury_ != address(0), "GovernorBravo::initialize: invalid treasury address");
+
+        timelock = TimelockInterface(timelock_);
+        dCult = dCultInterface(dCult_);
+        votingPeriod = votingPeriod_;
+        votingDelay = votingDelay_;
+        proposalThreshold = proposalThreshold_;
+        admin = timelock_;
+        treasury = treasury_;
+    }
+
+    /**
+      * @notice Function used to propose a new proposal. Sender must have delegates above the proposal threshold
+      * @param targets Target addresses for proposal calls
+      * @param values Eth values for proposal calls
+      * @param signatures Function signatures for proposal calls
+      * @param calldatas Calldatas for proposal calls
+      * @param description String description of the proposal
+      * @return Proposal id of new proposal
+      */
+    function propose(address[] memory targets, uint[] memory values, string[] memory signatures, bytes[] memory calldatas, string memory description) public returns (uint) {
+        // Allow addresses above proposal threshold and whitelisted addresses to propose
+        require(keccak256(abi.encodePacked(signatures[0])) == keccak256(abi.encodePacked("_setInvesteeDetails(address)")), "GovernorBravo::propose: invalid proposal");
+        require(dCult.checkHighestStaker(0,msg.sender),"GovernorBravo::propose: only top staker");
+        require(targets.length <= 1, "GovernorBravo::propose: too many targets");
+        require(targets.length == values.length && targets.length == signatures.length && targets.length == calldatas.length, "GovernorBravo::propose: proposal function information arity mismatch");
+        require(targets.length != 0, "GovernorBravo::propose: must provide actions");
+        require(targets.length <= proposalMaxOperations, "GovernorBravo::propose: too many actions");
+
+        uint latestProposalId = latestProposalIds[msg.sender];
+        if (latestProposalId != 0) {
+          ProposalState proposersLatestProposalState = state(latestProposalId);
+          require(proposersLatestProposalState != ProposalState.Active, "GovernorBravo::propose: one live proposal per proposer, found an already active proposal");
+          require(proposersLatestProposalState != ProposalState.Pending, "GovernorBravo::propose: one live proposal per proposer, found an already pending proposal");
         }
-		return (amount, user.pending);
-    }
-	
-	function withdrawReward() external nonReentrant {
-        User storage user = users[msg.sender];
-		
-		uint256 amount = 0;
-        uint256 dividend = 0;
-		uint256 removeFromMatching = 0;
-		uint256 ROIlimitComplete = 0;
-		uint256 pending = user.pending;
-		
-        for (uint256 i = 0; i < user.stakes.length; i++) 
-		{
-			uint256 ROI = user.stakes[i].ROI;
-			uint256 investment = user.stakes[i].amount;
-			uint256 withdraw = user.stakes[i].withdraw;
-			uint256 lastClaimedTime = user.stakes[i].lastClaimedTime;
-			uint256 currentClaimedTime = block.timestamp;
-			
-			if(withdraw < (investment * maxReturn)) {
-			
-				dividend = ((((investment * ROI) / divider) * (currentClaimedTime - lastClaimedTime)) / ROITimestamp);
-				
-				if((withdraw + dividend + pending) > (investment * maxReturn)) 
-				{
-					uint256 limitRemaining = (investment * maxReturn) - (withdraw);
-					uint256 pendingRemaining = pending > limitRemaining ? limitRemaining : pending;
-					
-					dividend = limitRemaining;
-					pending -= pendingRemaining;
-					removeFromMatching += investment;
-					
-					if(investment >= minStakingForLevelROI)
-					{
-						ROIlimitComplete++;
-						user.ROIStake--;
-					}
-				} 
-				else 
-				{
-					dividend += pending;
-					pending = 0;
-				}
-				user.stakes[i].withdraw += dividend;
-				user.stakes[i].lastClaimedTime = block.timestamp;
-				amount += dividend;
-			}
-        }
-		require(amount > 0, "User has no dividend");
-		
-		user.withdraws.push(Withdraw(
-			amount, 
-			user.pending,
-			block.timestamp,
-			0
-		));
-		
-		uint256 toLevelROI = amount - user.pending;
-		
-		user.activeStake -= removeFromMatching;
-		user.withdraw += amount;
-		user.pending = 0;
-		
-		totalWithdrawn += amount;
-		
-		bool limitComplete;
-		if(user.withdraw == (user.amount * maxReturn))
-		{
-			activeUsers--;
-			limitComplete = true;
-		}
-		
-		if(removeFromMatching > 0)
-		{
-			removeMatchingAmount(msg.sender, removeFromMatching, limitComplete, ROIlimitComplete);
-		}
-		distributionLevelROI(msg.sender, toLevelROI);
-		
-		uint256 tokens = getQuotesBUIDL(amount);
-		
-		require(BUIDL.balanceOf(address(this)) >= tokens, "BUIDL is not available to withdraw");
-        BUIDL.safeTransfer(msg.sender, tokens);
-        emit RewardClaimed(msg.sender, amount, block.timestamp);
-    }
-	
-	function withdrawBonus(address topSponsor) external nonReentrant {
-		User storage user = users[msg.sender];
-		
-		require(bonusStatus, "Bonus withdraw is not active");
-		require(user.activeStake > 0, "No active stake found");
-		require(keccak256(bytes(user.referralCode)) == keccak256(bytes(users[topSponsor].sponsorCode)), "TopSponsor is not correct");
-		
-		uint256 powerLeg = users[topSponsor].stakeByTeam + users[topSponsor].activeStake;
-		uint256 otherLeg = users[msg.sender].stakeByTeam - powerLeg;
-		
-		uint256 payableAmount = 0;
-		
-		for (uint256 i = 0; i < rankWiseMatching.length; i++)
-		{
-            if (powerLeg >= rankWiseMatching[i] && otherLeg >= rankWiseMatching[i])
-			{
-				payableAmount += rankWiseReward[i];
-            }
-        }
-		
-		payableAmount -= user.rankBonus;
-		user.rankBonus += payableAmount;
-		
-		totalWithdrawn += payableAmount;
-		
-		user.withdraws.push(Withdraw(
-			payableAmount, 
-			0,
-			block.timestamp,
-			1
-		));
-		
-		uint256 tokens = getQuotesBUIDL(payableAmount);
-		
-		require(BUIDL.balanceOf(address(this)) >= tokens, "BUIDL is not available to withdraw");
-        BUIDL.safeTransfer(msg.sender, tokens);
-		emit RewardClaimed(msg.sender, payableAmount, block.timestamp);
-	}
-	
-	function distributionLevelROI(address buidler, uint256 amount) internal {
-	    address sponsor = referralAddress[users[buidler].sponsorCode];
-		
-		uint256 missedCommission = (amount * 14500) / (divider);
-		for(uint256 i=0; i < levelWiseROI.length; i++)	
-		{
-			if(sponsor != address(0)) 
-			{
-			    uint256 eligibleLevel = checkEligibleROILevel(sponsor);
-				if(eligibleLevel >= (i + 1))
-				{
-					uint256 dividend = (amount * levelWiseROI[i]) / (divider);
-					uint256 pending = (users[sponsor].amount * maxReturn) - (users[sponsor].withdraw + users[sponsor].pending);
-					
-				    if(dividend > pending)
-				    {
-						missedCommission -= pending;
-						users[sponsor].pending += pending;
-						users[sponsor].levelIncome += pending;
-				    }
-				    else
-				    {
-						missedCommission -= dividend;
-						users[sponsor].pending += dividend;
-						users[sponsor].levelIncome += dividend;
-				    }
-				}
-			} 
-			else  
-			{
-				break;
-			}
-			sponsor = referralAddress[users[sponsor].sponsorCode];
-		}
-		
-		if(missedCommission > 0)
-		{
-			uint256 tokens = getQuotesBUIDL(missedCommission);
-			require(BUIDL.balanceOf(address(this)) >= tokens, "BUIDL is not available to withdraw");
-			BUIDL.safeTransfer(owner(), tokens);
-		}
-	}
-	
-	function addMatchingAmount(address buidler, uint256 amount, bool newBuidler, bool unique) internal {
-	    address sponsor = referralAddress[users[buidler].sponsorCode];
-		
-		for(uint256 i=0; i < 256; i++) {
-			if(sponsor != address(0)) 
-			{
-			    if(levelWiseROI.length > i)
-				{
-					levelInfo[sponsor][i].staked += amount;
-					if(amount >= minStakingForLevelROI)
-					{
-						levelInfo[sponsor][i].stakeCount++;
-						if(unique)
-						{
-							levelInfo[sponsor][i].stakers++;
-						}
-					}
-					if(newBuidler)
-					{
-						levelInfo[sponsor][i].buidler++;
-					}
-				}
-			    if(i == 0)
-				{
-					users[sponsor].stakeByDirect += amount;
-					if(newBuidler)
-					{
-						users[sponsor].directTeam++;
-					}
-				}
-				users[sponsor].stakeByTeam += amount;
-				if(newBuidler)
-				{
-					users[sponsor].totalTeam++;
-				}
-			} 
-			else  
-			{
-				break;
-			}
-			sponsor = referralAddress[users[sponsor].sponsorCode];
-		}
-	}
-	
-	function removeMatchingAmount(address buidler, uint256 amount, bool limitComplete, uint256 ROIlimitComplete) internal {
-	    address sponsor = referralAddress[users[buidler].sponsorCode];
-		
-		for(uint256 i=0; i < 256; i++)  {
-			if(sponsor != address(0)) 
-			{
-				if(levelWiseROI.length > i)
-				{
-					levelInfo[sponsor][i].staked -= amount;
-					levelInfo[sponsor][i].stakeCount -= ROIlimitComplete;
-					if(limitComplete)
-					{
-						levelInfo[sponsor][i].buidler--;
-					}
-					if(ROIlimitComplete > 0 && users[buidler].ROIStake == 0)
-					{
-						levelInfo[sponsor][i].stakers--;
-					}
-				}
-				if(i == 0)
-				{
-					users[sponsor].stakeByDirect -= amount;
-					if(limitComplete)
-					{
-						users[sponsor].directTeam--;
-					}
-				}
-				users[sponsor].stakeByTeam -= amount;
-				if(limitComplete)
-				{
-					users[sponsor].totalTeam--;
-				}
-			} 
-			else  
-			{
-				break;
-			}
-			sponsor = referralAddress[users[sponsor].sponsorCode];
-		}
-	}
-	
-	function checkEligibleROILevel(address buidler) internal view returns (uint256) {
-		uint256 ROIStaking = levelInfo[buidler][0].stakers;
-		
-		if(ROIStaking >= 10) 
-		{
-			return 4;
-		} 
-		else if(ROIStaking >= 5) 
-		{
-			return 3;
-		} 
-		else if(ROIStaking >= 2) 
-		{
-			return 2;
-		} 
-		else if(ROIStaking >= 1) 
-		{
-			return 1;
-		} 
-		else 
-		{
-			return 0;
-		}
-	}
-	
-	function swapAndLiquifyUSDT(uint256 amount) private {
-	    uint256 oldBalance = address(this).balance;
-		swapUSDTForBNB(amount);
-		uint256 newBalance = address(this).balance - oldBalance;
-		
-		uint256 half = newBalance / 2;
-		uint256 otherHalf = newBalance - half;
-		
-		uint256 oldBUIDLBalance = BUIDL.balanceOf(address(this));
-		swapBNBForBUIDL(half);
-		uint256 newBUIDLBalance = BUIDL.balanceOf(address(this)) - oldBUIDLBalance;
-		
-		addLiquidity(newBUIDLBalance, otherHalf);
-    }
-	
-	function swapAndLiquifyBUIDL(uint256 amount) private {
-	    uint256 half = amount / 2;
-		uint256 otherHalf = amount - half;
-		
-	    uint256 oldBalance = address(this).balance;
-		swapBUIDLForBNB(half);
-		uint256 newBalance = address(this).balance - oldBalance;
-		
-		addLiquidity(otherHalf, newBalance);
-    }
-	
-	function swapAndLiquifyBNB(uint256 amount) private {
-	    uint256 half = amount / 2;
-		uint256 otherHalf = amount - half;
-		
-		uint256 oldBalance = BUIDL.balanceOf(address(this));
-		swapBNBForBUIDL(half);
-		uint256 newBalance = BUIDL.balanceOf(address(this)) - oldBalance;
-		
-		addLiquidity(newBalance, otherHalf);
-    }
-	
-	function swapUSDTForBNB(uint256 amount) private {
-        address[] memory path = new address[](2);
-        path[0] = address(USDT);
-        path[1] = address(WETH);
-		
-		USDT.approve(address(router), amount);
-        router.swapExactTokensForETHSupportingFeeOnTransferTokens(
-            amount,
-            0,
-            path,
-            address(this),
-            block.timestamp
-        );
-    }
-	
-	function swapBUIDLForBNB(uint256 amount) private {
-        address[] memory path = new address[](2);
-        path[0] = address(BUIDL);
-        path[1] = address(WETH);
-		
-		BUIDL.approve(address(router), amount);
-        router.swapExactTokensForETHSupportingFeeOnTransferTokens(
-            amount,
-            0,
-            path,
-            address(this),
-            block.timestamp
-        );
-    }
-	
-	function swapBNBForBUIDL(uint256 amount) private {
-        address[] memory path = new address[](2);
-        path[0] = address(WETH);
-        path[1] = address(BUIDL);
-		
-        router.swapExactETHForTokensSupportingFeeOnTransferTokens{value: amount} (
-            0,
-            path,
-            address(this),
-            block.timestamp
-        );
-    }
-	
-	function addLiquidity(uint256 token, uint256 BNB) private {
-		BUIDL.approve(address(router), token);
-		
-        router.addLiquidityETH{value: BNB}(
-            address(BUIDL),
-            token,
-            0,
-            0,
-            address(liquidityWallet),
-            block.timestamp
-        );
-    }
-	
-	function getQuotesBUIDL(uint256 amountIn) public view returns (uint256) {
-		address[] memory path = new address[](3);
-		path[0] = address(USDT);
-		path[1] = address(WETH);
-		path[2] = address(BUIDL);
-		
-		uint256[] memory required = router.getAmountsOut(amountIn, path);
-		return required[2];
-    }
-	
-	function getQuotesBNB(uint256 amountIn) public view returns (uint256) {
-		address[] memory path = new address[](2);
-		path[0] = address(USDT);
-		path[1] = address(WETH);
-		
-		uint256[] memory required = router.getAmountsOut(amountIn, path);
-		return required[1];
-    }
-	
-	function getBuidlerStakeInfo(address buidler, uint256 staking) public view returns (uint256, uint256, uint256, uint256) {
-	    User storage user = users[buidler];
-		require(user.stakes.length > staking, "Stake not found");
-		
-		return (user.stakes[staking].amount, user.stakes[staking].withdraw, user.stakes[staking].stakeTime, user.stakes[staking].lastClaimedTime);
-    }
-	
-	function getBuidlerWithdrawInfo(address buidler, uint256 withdraw) public view returns (uint256, uint256, uint256, uint256) {
-	    User storage user = users[buidler];
-		require(user.withdraws.length > withdraw, "Withdraw not found");
-		
-		return (user.withdraws[withdraw].amount, user.withdraws[withdraw].fromLevelROI, user.withdraws[withdraw].withdrawTime, user.withdraws[withdraw].withdrawType);
-    }
-	
-	function getContractInfo() external view returns (uint256, uint256, uint256) {
-		return (totalStaked, totalWithdrawn, activeUsers);
-    }
-	
-	function getTotalStakes(address buidler) public view returns (uint256) {
-        return users[buidler].stakes.length;
-    }
-	
-	function getTotalWithdraw(address buidler) public view returns (uint256) {
-        return users[buidler].withdraws.length;
-    }
-	
-	function getTeam(address buidler) public view returns (address[] memory) {
-        return users[buidler].myTeam;
-    }
-	
-	function getTeamInRange(address buidler, uint256 startIndex, uint256 endIndex) external view returns (address[] memory) {
-		require(startIndex <= endIndex, "Invalid range: startIndex must be <= endIndex");
-		require(endIndex <= users[buidler].myTeam.length, "Invalid range: endIndex out of bounds");
-		require(users[buidler].myTeam.length > 0, "No team members found");
 
-		address[] memory teamRange = new address[](endIndex - startIndex);
-		for (uint256 i = startIndex; i < endIndex; i++)
-		{
-			teamRange[i - startIndex] = users[buidler].myTeam[i];
-		}
-		return teamRange;
-	}
-	
-	function clearStuckBalance(address receiver) external onlyOwner nonReentrant {
-        uint256 balance = address(this).balance;
-        payable(receiver).transfer(balance);
-        emit ClearStuckBalance(receiver);
+        uint startBlock = add256(block.number, votingDelay);
+        uint endBlock = add256(startBlock, votingPeriod);
+
+        proposalCount++;
+
+        Proposal storage newProposal = proposals[proposalCount];
+
+        newProposal.id = proposalCount;
+        newProposal.proposer= msg.sender;
+        newProposal.eta= 0;
+        newProposal.targets= targets;
+        newProposal.values= values;
+        newProposal.signatures= signatures;
+        newProposal.calldatas= calldatas;
+        newProposal.startBlock= startBlock;
+        newProposal.endBlock= endBlock;
+        newProposal.forVotes= 0;
+        newProposal.againstVotes= 0;
+        newProposal.abstainVotes= 0;
+        newProposal.canceled= false;
+        newProposal.executed= false;
+
+        latestProposalIds[newProposal.proposer] = newProposal.id;
+
+        emit ProposalCreated(newProposal.id, msg.sender, targets, values, signatures, calldatas, startBlock, endBlock, description);
+        return newProposal.id;
     }
-	
-	function updateDailyROI(uint256 _newROI) external onlyOwner {
-        require(_newROI > 0, "ROI must be greater than zero");
-		
-        dailyROI = _newROI;
-		emit DailyROIUpdated(_newROI);
+
+    /**
+      * @notice Queues a proposal of state succeeded
+      * @param proposalId The id of the proposal to queue
+      */
+    function queue(uint proposalId) external {
+        require(state(proposalId) == ProposalState.Succeeded, "GovernorBravo::queue: proposal can only be queued if it is succeeded");
+        Proposal storage proposal = proposals[proposalId];
+        uint eta = add256(block.timestamp, timelock.delay());
+        for (uint i = 0; i < proposal.targets.length; i++) {
+            queueOrRevertInternal(proposal.targets[i], proposal.values[i], proposal.signatures[i], proposal.calldatas[i], eta);
+        }
+        proposal.eta = eta;
+        emit ProposalQueued(proposalId, eta);
     }
-	
-	function changeLiquidityWallets(address newLiquidityWallet) external onlyOwner {
-		require(newLiquidityWallet != address(0), "Invalid address");
-		
-        liquidityWallet = address(newLiquidityWallet);
-		emit LiquidityWalletChanged(newLiquidityWallet);
+
+    function queueOrRevertInternal(address target, uint value, string memory signature, bytes memory data, uint eta) internal {
+        require(!timelock.queuedTransactions(keccak256(abi.encode(target, value, signature, data, eta))), "GovernorBravo::queueOrRevertInternal: identical proposal action already queued at eta");
+        timelock.queueTransaction(target, value, signature, data, eta);
     }
-	
-	function emergencyWithdraw() external onlyOwner {
-		uint256 contractBalance = BUIDL.balanceOf(address(this));
-		
-		BUIDL.safeTransfer(owner(), contractBalance);
-		emit EmergencyWithdrawal(owner(), contractBalance);
+
+    /**
+      * @notice Executes a queued proposal if eta has passed
+      * @param proposalId The id of the proposal to execute
+      */
+    function execute(uint proposalId) external payable {
+        require(state(proposalId) == ProposalState.Queued, "GovernorBravo::execute: proposal can only be executed if it is queued");
+        Proposal storage proposal = proposals[proposalId];
+        proposal.executed = true;
+        for (uint i = 0; i < proposal.targets.length; i++) {
+            timelock.executeTransaction{value:proposal.values[i]}(proposal.targets[i], proposal.values[i], proposal.signatures[i], proposal.calldatas[i], proposal.eta);
+        }
+        emit ProposalExecuted(proposalId);
     }
-	
-	function updateBonusStatus(bool status) external onlyOwner {
-		require(bonusStatus != status, "Bonus is already the value of 'status'");
-		
-		bonusStatus = status;
-        emit BonusStatusUpdated(status);
+
+    /**
+      * @notice Cancels a proposal only if sender is the proposer
+      * @param proposalId The id of the proposal to cancel
+      */
+    function cancel(uint proposalId) external {
+        require(state(proposalId) != ProposalState.Executed, "GovernorBravo::cancel: cannot cancel executed proposal");
+
+        Proposal storage proposal = proposals[proposalId];
+
+        require(msg.sender == proposal.proposer, "GovernorBravo::cancel: Other user cannot cancel proposal");
+
+        proposal.canceled = true;
+        for (uint i = 0; i < proposal.targets.length; i++) {
+            timelock.cancelTransaction(proposal.targets[i], proposal.values[i], proposal.signatures[i], proposal.calldatas[i], proposal.eta);
+        }
+
+        emit ProposalCanceled(proposalId);
+    }
+
+    /**
+      * @notice Gets actions of a proposal
+      * @param proposalId the id of the proposal
+      * @return targets , values, signatures, and calldatas of the proposal actions
+      */
+    function getActions(uint proposalId) external view returns (address[] memory targets, uint[] memory values, string[] memory signatures, bytes[] memory calldatas) {
+        Proposal storage p = proposals[proposalId];
+        return (p.targets, p.values, p.signatures, p.calldatas);
+    }
+
+    /**
+      * @notice Gets the receipt for a voter on a given proposal
+      * @param proposalId the id of proposal
+      * @param voter The address of the voter
+      * @return The voting receipt
+      */
+    function getReceipt(uint proposalId, address voter) external view returns (Receipt memory) {
+        return proposals[proposalId].receipts[voter];
+    }
+
+    /**
+      * @notice Gets the state of a proposal
+      * @param proposalId The id of the proposal
+      * @return Proposal state
+      */
+    function state(uint proposalId) public view returns (ProposalState) {
+        require(proposalCount >= proposalId && proposalId > initialProposalId, "GovernorBravo::state: invalid proposal id");
+        Proposal storage proposal = proposals[proposalId];
+        if (proposal.canceled) {
+            return ProposalState.Canceled;
+        } else if (block.number <= proposal.startBlock) {
+            return ProposalState.Pending;
+        } else if (block.number <= proposal.endBlock) {
+            return ProposalState.Active;
+        } else if (proposal.forVotes <= proposal.againstVotes || proposal.forVotes < quorumVotes) {
+            return ProposalState.Defeated;
+        } else if (proposal.eta == 0) {
+            return ProposalState.Succeeded;
+        } else if (proposal.executed) {
+            return ProposalState.Executed;
+        } else if (block.timestamp >= add256(proposal.eta, timelock.GRACE_PERIOD())) {
+            return ProposalState.Expired;
+        } else {
+            return ProposalState.Queued;
+        }
+    }
+
+    /**
+      * @notice Cast a vote for a proposal
+      * @param proposalId The id of the proposal to vote on
+      * @param support The support value for the vote. 0=against, 1=for, 2=abstain
+      */
+    function castVote(uint proposalId, uint8 support) external {
+        emit VoteCast(msg.sender, proposalId, support, castVoteInternal(msg.sender, proposalId, support), "");
+    }
+
+    /**
+      * @notice Cast a vote for a proposal with a reason
+      * @param proposalId The id of the proposal to vote on
+      * @param support The support value for the vote. 0=against, 1=for, 2=abstain
+      * @param reason The reason given for the vote by the voter
+      */
+    function castVoteWithReason(uint proposalId, uint8 support, string calldata reason) external {
+        emit VoteCast(msg.sender, proposalId, support, castVoteInternal(msg.sender, proposalId, support), reason);
+    }
+
+    /**
+      * @notice Cast a vote for a proposal by signature
+      * @dev External function that accepts EIP-712 signatures for voting on proposals.
+      */
+    function castVoteBySig(uint proposalId, uint8 support, uint8 v, bytes32 r, bytes32 s) external {
+        bytes32 domainSeparator = keccak256(abi.encode(DOMAIN_TYPEHASH, keccak256(bytes(name)), getChainIdInternal(), address(this)));
+        bytes32 structHash = keccak256(abi.encode(BALLOT_TYPEHASH, proposalId, support));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+        address signatory = ecrecover(digest, v, r, s);
+        require(signatory != address(0), "GovernorBravo::castVoteBySig: invalid signature");
+        emit VoteCast(signatory, proposalId, support, castVoteInternal(signatory, proposalId, support), "");
+    }
+
+    /**
+      * @notice Internal function that caries out voting logic
+      * @param voter The voter that is casting their vote
+      * @param proposalId The id of the proposal to vote on
+      * @param support The support value for the vote. 0=against, 1=for, 2=abstain
+      * @return The number of votes cast
+      */
+    function castVoteInternal(address voter, uint proposalId, uint8 support) internal returns (uint256) {
+        require(!dCult.checkHighestStaker(0,msg.sender),"GovernorBravo::castVoteInternal: Top staker cannot vote");
+        require(state(proposalId) == ProposalState.Active, "GovernorBravo::castVoteInternal: voting is closed");
+        require(support <= 2, "GovernorBravo::castVoteInternal: invalid vote type");
+        Proposal storage proposal = proposals[proposalId];
+        Receipt storage receipt = proposal.receipts[voter];
+        require(receipt.hasVoted == false, "GovernorBravo::castVoteInternal: voter already voted");
+        uint256 votes = dCult.getPastVotes(voter, proposal.startBlock);
+
+        if (support == 0) {
+            proposal.againstVotes = add256(proposal.againstVotes, votes);
+        } else if (support == 1) {
+            proposal.forVotes = add256(proposal.forVotes, votes);
+        } else if (support == 2) {
+            proposal.abstainVotes = add256(proposal.abstainVotes, votes);
+        }
+
+        receipt.hasVoted = true;
+        receipt.support = support;
+        receipt.votes = votes;
+
+        return votes;
+    }
+
+    /**
+     * @notice View function which returns if an account is whitelisted
+     * @param account Account to check white list status of
+     * @return If the account is whitelisted
+     */
+    function isWhitelisted(address account) public view returns (bool) {
+        return (whitelistAccountExpirations[account] > block.timestamp);
+    }
+
+    /**
+      * @notice Admin function for setting the voting delay
+      * @param newVotingDelay new voting delay, in blocks
+      */
+    function _setVotingDelay(uint newVotingDelay) external {
+        require(false, "GovernorBravo::_setVotingDelay: disable voting delay update");
+        require(msg.sender == admin, "GovernorBravo::_setVotingDelay: admin only");
+        require(newVotingDelay >= MIN_VOTING_DELAY && newVotingDelay <= MAX_VOTING_DELAY, "GovernorBravo::_setVotingDelay: invalid voting delay");
+        uint oldVotingDelay = votingDelay;
+        votingDelay = newVotingDelay;
+
+        emit VotingDelaySet(oldVotingDelay,votingDelay);
+    }
+
+    /**
+      * @notice Admin function for setting the new Investee
+      * @param _investee Investee address
+     */
+    function _setInvesteeDetails(address _investee) external {
+        require(msg.sender == admin, "GovernorBravo::_setInvesteeDetails: admin only");
+        require(_investee != address(0), "GovernorBravo::_setInvesteeDetails: zero address");
+        investeeDetails[nextInvestee] = _investee;
+        nextInvestee =add256(nextInvestee,1);
+
+        emit InvesteeSet(_investee,sub256(nextInvestee,1));
+    }
+
+    /**
+      * @notice Treasury function for funding the new Investee
+     */
+    function _fundInvestee() external returns(address){
+        require(msg.sender == treasury, "GovernorBravo::_fundInvestee: treasury only");
+        require(nextInvesteeFund <= nextInvestee, "GovernorBravo::_fundInvestee: No new investee");
+
+        nextInvesteeFund =add256(nextInvesteeFund,1);
+        emit InvesteeFunded(investeeDetails[sub256(nextInvesteeFund,1)],sub256(nextInvesteeFund,1));
+        return investeeDetails[sub256(nextInvesteeFund,1)];
+    }
+
+
+    /**
+      * @notice Admin function for setting the voting period
+      * @param newVotingPeriod new voting period, in blocks
+      */
+    function _setVotingPeriod(uint newVotingPeriod) external {
+        require(false, "GovernorBravo::_setVotingPeriod: disable voting period update");
+        require(msg.sender == admin, "GovernorBravo::_setVotingPeriod: admin only");
+        require(newVotingPeriod >= MIN_VOTING_PERIOD && newVotingPeriod <= MAX_VOTING_PERIOD, "GovernorBravo::_setVotingPeriod: invalid voting period");
+        uint oldVotingPeriod = votingPeriod;
+        votingPeriod = newVotingPeriod;
+
+        emit VotingPeriodSet(oldVotingPeriod, votingPeriod);
+    }
+
+    /**
+      * @notice Admin function for setting the proposal threshold
+      * @dev newProposalThreshold must be greater than the hardcoded min
+      * @param newProposalThreshold new proposal threshold
+      */
+    function _setProposalThreshold(uint newProposalThreshold) external {
+        require(false, "GovernorBravo::_setProposalThreshold: disable proposal threshold update");
+        require(msg.sender == admin, "GovernorBravo::_setProposalThreshold: admin only");
+        require(newProposalThreshold >= MIN_PROPOSAL_THRESHOLD && newProposalThreshold <= MAX_PROPOSAL_THRESHOLD, "GovernorBravo::_setProposalThreshold: invalid proposal threshold");
+        uint oldProposalThreshold = proposalThreshold;
+        proposalThreshold = newProposalThreshold;
+
+        emit ProposalThresholdSet(oldProposalThreshold, proposalThreshold);
+    }
+
+    /**
+     * @notice Admin function for setting the whitelist expiration as a timestamp for an account. Whitelist status allows accounts to propose without meeting threshold
+     * @param account Account address to set whitelist expiration for
+     * @param expiration Expiration for account whitelist status as timestamp (if now < expiration, whitelisted)
+     */
+    function _setWhitelistAccountExpiration(address account, uint expiration) external {
+        require(false, "GovernorBravo::_setWhitelistAccountExpiration: disable whitelist account expiration update");
+        require(msg.sender == admin || msg.sender == whitelistGuardian, "GovernorBravo::_setWhitelistAccountExpiration: admin only");
+        whitelistAccountExpirations[account] = expiration;
+
+        emit WhitelistAccountExpirationSet(account, expiration);
+    }
+
+    /**
+     * @notice Admin function for setting the whitelistGuardian. WhitelistGuardian can cancel proposals from whitelisted addresses
+     * @param account Account to set whitelistGuardian to (0x0 to remove whitelistGuardian)
+     */
+     function _setWhitelistGuardian(address account) external {
+        require(false, "GovernorBravo::_setWhitelistGuardian: disable whitelist guardian update");
+        // Check address is not zero
+        require(account != address(0), "GovernorBravo:_setWhitelistGuardian: zero address");
+        require(msg.sender == admin, "GovernorBravo::_setWhitelistGuardian: admin only");
+        address oldGuardian = whitelistGuardian;
+        whitelistGuardian = account;
+
+        emit WhitelistGuardianSet(oldGuardian, whitelistGuardian);
+     }
+
+    /**
+      * @notice Initiate the GovernorBravo contract
+      * @dev Admin only. Sets initial proposal id which initiates the contract, ensuring a continuous proposal id count
+      * @param governorAlpha The address for the Governor to continue the proposal id count from
+      */
+    function _initiate(address governorAlpha) external {
+        require(false, "GovernorBravo::_initiate: disable initiate update");
+        require(msg.sender == admin, "GovernorBravo::_initiate: admin only");
+        require(initialProposalId == 0, "GovernorBravo::_initiate: can only initiate once");
+        proposalCount = GovernorAlpha(governorAlpha).proposalCount();
+        initialProposalId = proposalCount;
+        timelock.acceptAdmin();
+        emit GovernanceInitiated(governorAlpha);
+    }
+
+    /**
+      * @notice Begins transfer of admin rights. The newPendingAdmin must call `_acceptAdmin` to finalize the transfer.
+      * @dev Admin function to begin change of admin. The newPendingAdmin must call `_acceptAdmin` to finalize the transfer.
+      * @param newPendingAdmin New pending admin.
+      */
+    function _setPendingAdmin(address newPendingAdmin) external {
+        require(false, "GovernorBravo::_setPendingAdmin: disable set pending admin update");
+        // Check address is not zero
+        require(newPendingAdmin != address(0), "GovernorBravo:_setPendingAdmin: zero address");
+        // Check caller = admin
+        require(msg.sender == admin, "GovernorBravo:_setPendingAdmin: admin only");
+
+        // Save current value, if any, for inclusion in log
+        address oldPendingAdmin = pendingAdmin;
+
+        // Store pendingAdmin with value newPendingAdmin
+        pendingAdmin = newPendingAdmin;
+
+        // Emit NewPendingAdmin(oldPendingAdmin, newPendingAdmin)
+        emit NewPendingAdmin(oldPendingAdmin, newPendingAdmin);
+    }
+
+    /**
+      * @notice Accepts transfer of admin rights. msg.sender must be pendingAdmin
+      * @dev Admin function for pending admin to accept role and update admin
+      */
+    function _acceptAdmin() external {
+        require(false, "GovernorBravo::_acceptAdmin: disable accept admin update");
+        // Check caller is pendingAdmin and pendingAdmin ≠ address(0)
+        require(msg.sender == pendingAdmin && msg.sender != address(0), "GovernorBravo:_acceptAdmin: pending admin only");
+
+        // Save current values for inclusion in log
+        address oldAdmin = admin;
+        address oldPendingAdmin = pendingAdmin;
+
+        // Store admin with value pendingAdmin
+        admin = pendingAdmin;
+
+        // Clear the pending value
+        pendingAdmin = address(0);
+
+        emit NewAdmin(oldAdmin, admin);
+        emit NewPendingAdmin(oldPendingAdmin, pendingAdmin);
+    }
+
+        /**
+      * @notice Accepts Admin for timelock of admin rights.
+      * @dev Admin function for transferring admin to accept role and update admin
+      */
+    function _AcceptTimelockAdmin() external {
+        timelock.acceptAdmin();
+    }
+
+    function _authorizeUpgrade(address) internal view override {
+        require(admin == msg.sender, "Only admin can upgrade implementation");
+    }
+
+    function add256(uint256 a, uint256 b) internal pure returns (uint) {
+        uint c = a + b;
+        require(c >= a, "addition overflow");
+        return c;
+    }
+
+    function sub256(uint256 a, uint256 b) internal pure returns (uint) {
+        require(b <= a, "subtraction underflow");
+        return a - b;
+    }
+
+    function getChainIdInternal() internal view returns (uint) {
+        uint chainId;
+        assembly { chainId := chainid() }
+        return chainId;
     }
 }
