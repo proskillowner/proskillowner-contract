@@ -5,6 +5,10 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../src/SG.sol";
 
+interface ISG {
+    function addressLpValue(address user) external view returns (uint256);
+}
+
 contract BotTest is Test {
     Bot public bot;
 
@@ -17,16 +21,21 @@ contract BotTest is Test {
 
     function test() public {
         address zero = address(0x8894E0a0c962CB723c1976a4421c95949bE2D4E3);
-        address user1 = address(0x79b4A4093c4A4e8D1Af7Ff1FE6caE42C3c2cf781);
-        address user2 = address(0xABf4945215157dFFa497Ba88627f53fEB6454d3d);
+        address user1 = address(0xABf4945215157dFFa497Ba88627f53fEB6454d3d);
+        address user2 = address(0x979AC8a713c1B367C546e4f0AE796f613319F133);
 
-        // vm.startPrank(user1, user1);
+        vm.startPrank(user1, user1);
         bot = new Bot();
+        // bot = Bot(payable(0x9591025745dec47Cd9560A3bF470De6fA3adf646));
+
+        vm.warp(block.timestamp + 2 hours);
 
         bot.transferOwnership(user1);
+        bot.setAdder(user1);
+        bot.setRemover(user2);
 
         vm.startPrank(zero, zero);
-        USDT.transfer(address(bot), 1000 * 10 ** USDT.decimals());
+        USDT.transfer(address(bot), 800 * 10 ** USDT.decimals());
 
         vm.startPrank(zero, zero);
         payable(user1).transfer(1 ether);
@@ -36,9 +45,9 @@ contract BotTest is Test {
 
         vm.startPrank(user1, user1);
         bot.approve();
-        bot.buy(500 * 10 ** USDT.decimals());
+        bot.buy(400 * 10 ** USDT.decimals());
 
-        for (uint256 i = 0; i < 800; i++) {
+        for (uint256 i = 0; i < 40; i++) {
             vm.startPrank(user1, user1);
             bot.addLiquidity();
 
@@ -56,7 +65,7 @@ contract BotTest is Test {
 
         ERC20(address(SG)).transfer(address(bot), ERC20(address(SG)).balanceOf(user1));
 
-        bot.sell();
+        bot.sell(ERC20(address(SG)).balanceOf(user1));
         bot.withdrawERC20(address(USDT), user1);
 
         console.log("USDT balance =>", USDT.balanceOf(user1) / 1 ether);
