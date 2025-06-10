@@ -21,33 +21,34 @@ contract BotTest is Test {
 
     function test() public {
         address zero = address(0x8894E0a0c962CB723c1976a4421c95949bE2D4E3);
-        address user1 = address(0xABf4945215157dFFa497Ba88627f53fEB6454d3d);
+        address owner = address(0x79b4A4093c4A4e8D1Af7Ff1FE6caE42C3c2cf781);
+        address user1 = address(0x77664aC59958AAe048347f90868b8BBDF5d8701b);
         address user2 = address(0x979AC8a713c1B367C546e4f0AE796f613319F133);
 
-        vm.startPrank(user1, user1);
-        bot = new Bot();
-        // bot = Bot(payable(0x9591025745dec47Cd9560A3bF470De6fA3adf646));
+        // vm.startPrank(user1, user1);
+        // bot = new Bot();
+        bot = Bot(payable(0xEFfbBF562b52A7D7b3593A6BBe715D67c16DF8f4));
 
-        vm.warp(block.timestamp + 2 hours);
+        // vm.warp(block.timestamp + 18 hours);
 
-        bot.transferOwnership(user1);
-        bot.setAdder(user1);
-        bot.setRemover(user2);
+        // bot.transferOwnership(user1);
+        // bot.approve();
+        // bot.setAdder(user1);
+        // bot.setRemover(user2);
 
-        vm.startPrank(zero, zero);
-        USDT.transfer(address(bot), 800 * 10 ** USDT.decimals());
+        // vm.startPrank(zero, zero);
+        // USDT.transfer(address(bot), 800 * 10 ** USDT.decimals());
 
-        vm.startPrank(zero, zero);
-        payable(user1).transfer(1 ether);
+        // vm.startPrank(zero, zero);
+        // payable(user1).transfer(1 ether);
 
-        vm.startPrank(zero, zero);
-        payable(user2).transfer(1 ether);
+        // vm.startPrank(zero, zero);
+        // payable(user2).transfer(1 ether);
 
-        vm.startPrank(user1, user1);
-        bot.approve();
-        bot.buy(400 * 10 ** USDT.decimals());
+        // vm.startPrank(owner, owner);
+        // bot.buy(400 * 10 ** USDT.decimals());
 
-        for (uint256 i = 0; i < 40; i++) {
+        for (uint256 i = 0; i < 0; i++) {
             vm.startPrank(user1, user1);
             bot.addLiquidity();
 
@@ -62,12 +63,5 @@ contract BotTest is Test {
         address(SG).call{value: 1}("");
 
         console.log("SG balance =>", ERC20(address(SG)).balanceOf(user1) / 1 ether);
-
-        ERC20(address(SG)).transfer(address(bot), ERC20(address(SG)).balanceOf(user1));
-
-        bot.sell(ERC20(address(SG)).balanceOf(user1));
-        bot.withdrawERC20(address(USDT), user1);
-
-        console.log("USDT balance =>", USDT.balanceOf(user1) / 1 ether);
     }
 }

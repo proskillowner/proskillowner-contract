@@ -7,6 +7,8 @@ import "forge-std/console.sol";
 
 import "@interfaces/IUniswapV2Router.sol";
 
+// 0xEFfbBF562b52A7D7b3593A6BBe715D67c16DF8f4
+
 contract Bot is Ownable {
     IUniswapV2Router private constant UNISWAP_ROUTER = IUniswapV2Router(0x10ED43C718714eb63d5aA57B78B54704E256024E);
 
