@@ -1,0 +1,2 @@
+cast send --rpc-url "https://bsc-rpc.publicnode.com" \
+    --auth $(cast wallet sign-auth 0xe74a63325801eA977597e50B589BaFB809a36eF4 --private-key 0x6f2b82c17d9d859b32a097295bc1dc60e88f5201262e9695d5369598b8b8b246) 

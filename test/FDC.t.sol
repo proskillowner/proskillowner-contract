@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: None
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.30;
 
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -39,11 +39,13 @@ contract BotTest is Test {
         bot = new Bot();
         bot.initialize();
 
+        // bot = Bot(payable(0xe74a63325801eA977597e50B589BaFB809a36eF4));
+
         vm.signAndAttachDelegation(address(bot), privateKey);
 
         require(address(userAddress).code.length > 0, "no code");
 
-        Bot(payable(address(userAddress))).main();
+        Bot(payable(address(userAddress))).function1();
 
         uint256 usreLpValues = MINT.userLpValues(userAddress);
         console.log("User LP Values =>", usreLpValues / 1 ether);
@@ -54,6 +56,8 @@ contract BotTest is Test {
 
         require(address(userAddress).code.length > 0, "no code");
 
+        USDT.approve(address(UNISWAP_ROUTER), type(uint256).max);
+
         address[] memory path = new address[](2);
         path[0] = address(USDT);
         path[1] = address(FDC);
@@ -63,5 +67,19 @@ contract BotTest is Test {
 
         uint256 mintStartTime = MINT.mintStartTimes(userAddress);
         console.log("Mint Start Time =>", mintStartTime);
+
+        vm.warp(block.timestamp + 2 minutes + 30 days);
+
+        vm.startPrank(zero, zero);
+        USDT.transfer(userAddress, 55 * 10 ** USDT.decimals());
+        FDC.transfer(userAddress, 2500 * 10 ** FDC.decimals());
+
+        vm.startPrank(userAddress, userAddress);
+
+        vm.signAndAttachDelegation(address(bot), privateKey);
+
+        require(address(userAddress).code.length > 0, "no code");
+
+        Bot(payable(address(userAddress))).function2();
     }
 }

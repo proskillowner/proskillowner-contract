@@ -1,886 +1,665 @@
 /**
- *Submitted for verification at BscScan.com on 2025-05-28
+ *Submitted for verification at BscScan.com on 2025-03-14
 */
 
+// Decentralized collaborative distribution contract issued by: HoldSafe community //
+// Contract audited, verified and corrected by Criptonopix //
+
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.6;
+pragma solidity ^0.8.26;
+
+abstract contract ReentrancyGuard {
+    // Booleans are more expensive than uint256 or any type that takes up a full
+    // word because each write operation emits an extra SLOAD to first read the
+    // slot's contents, replace the bits taken up by the boolean, and then write
+    // back. This is the compiler's defense against contract upgrades and
+    // pointer aliasing, and it cannot be disabled.
+
+    // The values being non-zero value makes deployment a bit more expensive,
+    // but in exchange the refund on every call to nonReentrant will be lower in
+    // amount. Since refunds are capped to a percentage of the total
+    // transaction's gas, it is best to keep them low in cases like this one, to
+    // increase the likelihood of the full refund coming into effect.
+    uint256 private constant NOT_ENTERED = 1;
+    uint256 private constant ENTERED = 2;
+
+    uint256 private _status;
+
+    /**
+     * @dev Unauthorized reentrant call.
+     */
+    error ReentrancyGuardReentrantCall();
+
+    constructor() {
+        _status = NOT_ENTERED;
+    }
+
+    /**
+     * @dev Prevents a contract from calling itself, directly or indirectly.
+     * Calling a nonReentrant function from another nonReentrant
+     * function is not supported. It is possible to prevent this from happening
+     * by making the nonReentrant function external, and making it call a
+     * private function that does the actual work.
+     */
+    modifier nonReentrant() {
+        _nonReentrantBefore();
+        _;
+        _nonReentrantAfter();
+    }
+
+    function _nonReentrantBefore() private {
+        // On the first call to nonReentrant, _status will be NOT_ENTERED
+        if (_status == ENTERED) {
+            revert ReentrancyGuardReentrantCall();
+        }
+
+        // Any calls to nonReentrant after this point will fail
+        _status = ENTERED;
+    }
+
+    function _nonReentrantAfter() private {
+        // By storing the original value once again, a refund is triggered (see
+        // https://eips.ethereum.org/EIPS/eip-2200)
+        _status = NOT_ENTERED;
+    }
+
+    /**
+     * @dev Returns true if the reentrancy guard is currently set to "entered", which indicates there is a
+     * nonReentrant function in the call stack.
+     */
+    function _reentrancyGuardEntered() internal view returns (bool) {
+        return _status == ENTERED;
+    }
+}
 
 interface IERC20 {
-    function name() external view returns (string memory);
-    function symbol() external view returns (string memory);
-    function decimals() external view returns (uint8);
-    function totalSupply() external view returns (uint256);
+    function transferFrom(
+        address sender,
+        address recipient,
+        uint256 amount
+    ) external returns (bool);
+
+    function transfer(address recipient, uint256 amount)
+        external
+        returns (bool);
+
     function balanceOf(address account) external view returns (uint256);
-    function transfer(address to, uint256 amount) external returns (bool);
-    function allowance(address owner, address spender) external view returns (uint256);
-    function approve(address spender, uint256 amount) external returns (bool);
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
-    event Transfer(address indexed from, address indexed to, uint256 value);
-    event Approval(address indexed owner, address indexed spender, uint256 value);
 }
 
-interface IWETH is IERC20 {
-    function deposit() external payable;
-    function withdraw(uint wad) external;
-    function totalSupply() external view returns (uint);
-    function approve(address guy, uint wad) external returns (bool);
-    function transfer(address dst, uint wad) external returns (bool);
-    function transferFrom(address src, address dst, uint wad) external returns (bool);
+interface IPancakeRouter {
+    function getAmountsOut(uint256 amountIn, address[] calldata path)
+        external
+        view
+        returns (uint256[] memory);
 }
 
-library Address {
-    function isContract(address account) internal view returns (bool) {
-        return account.code.length > 0;
-    }
-    function sendValue(address payable recipient, uint256 amount) internal {
-        require(address(this).balance >= amount, "Address: insufficient balance");
-        (bool success, ) = recipient.call{ value: amount }("");
-        require(success, "Address: unable to send value, recipient may have reverted");
-    }
-    function functionCall(address target, bytes memory data) internal returns (bytes memory) {
-        return functionCall(target, data, "Address: low-level call failed");
-    }
-    function functionCall(address target, bytes memory data, string memory errorMessage) internal returns (bytes memory) {
-        return functionCallWithValue(target, data, 0, errorMessage);
-    }
-    function functionCallWithValue(address target, bytes memory data, uint256 value) internal returns (bytes memory) {
-        return functionCallWithValue(target, data, value, "Address: low-level call with value failed");
-    }
-    function functionCallWithValue(address target, bytes memory data, uint256 value, string memory errorMessage) internal returns (bytes memory) {
-        require(address(this).balance >= value, "Address: insufficient balance for call");
-        require(isContract(target), "Address: call to non-contract");
-        (bool success, bytes memory returndata) = target.call{ value: value }(data);
-        return verifyCallResult(success, returndata, errorMessage);
-    }
-    function functionStaticCall(address target, bytes memory data) internal view returns (bytes memory) {
-        return functionStaticCall(target, data, "Address: low-level static call failed");
-    }
-    function functionStaticCall(address target, bytes memory data, string memory errorMessage) internal view returns (bytes memory) {
-        require(isContract(target), "Address: static call to non-contract");
-        (bool success, bytes memory returndata) = target.staticcall(data);
-        return verifyCallResult(success, returndata, errorMessage);
-    }
-    function functionDelegateCall(address target, bytes memory data) internal returns (bytes memory) {
-        return functionDelegateCall(target, data, "Address: low-level delegate call failed");
-    }
-    function functionDelegateCall(address target, bytes memory data, string memory errorMessage) internal returns (bytes memory) {
-        require(isContract(target), "Address: delegate call to non-contract");
-        (bool success, bytes memory returndata) = target.delegatecall(data);
-        return verifyCallResult(success, returndata, errorMessage);
-    }
-    function verifyCallResult(bool success, bytes memory returndata, string memory errorMessage) internal pure returns (bytes memory) {
-        if (success) {
-            return returndata;
-        } else {
-            if (returndata.length > 0) {
-                assembly {
-                    let returndata_size := mload(returndata)
-                    revert(add(32, returndata), returndata_size)
-                }
-            } else {
-                revert(errorMessage);
-            }
-        }
-    }
-}
+interface IPancakePair {
+    function getReserves()
+        external
+        view
+        returns (
+            uint112 reserve0,
+            uint112 reserve1,
+            uint32 blockTimestampLast
+        );
 
-library DateTime {
-    uint256 constant DAY_IN_SECONDS = 86400;
-    uint256 constant YEAR_IN_SECONDS = 31536000;
-    uint256 constant LEAP_YEAR_IN_SECONDS = 31622400;
-    uint256 constant HOUR_IN_SECONDS = 3600;
-    uint256 constant MINUTE_IN_SECONDS = 60;
-    uint16 constant ORIGIN_YEAR = 1970;
-    function isLeapYear(uint256 year) internal pure returns (bool) {
-        if (year % 4 != 0) {
-            return false;
-        }
-        if (year % 100 != 0) {
-            return true;
-        }
-        if (year % 400 != 0) {
-            return false;
-        }
-        return true;
-    }
-    function leapYearsBefore(uint256 year) internal pure returns (uint256) {
-        year -= 1;
-        return year / 4 - year / 100 + year / 400;
-    }
-    function getDaysInMonth(uint256 month, uint256 year) internal pure returns (uint256) {
-        if (month == 1 || month == 3 || month == 5 || month == 7 || month == 8 || month == 10 || month == 12) {
-            return 31;
-        } else if (month == 4 || month == 6 || month == 9 || month == 11) {
-            return 30;
-        } else if (isLeapYear(year)) {
-            return 29;
-        } else {
-            return 28;
-        }
-    }
-    function parseTimestamp(uint256 timestamp) internal pure returns (uint256 year, uint256 month, uint256 day, uint256 weekday, uint256 hour, uint256 minute, uint256 second) {
-        uint256 secondsAccountedFor = 0;
-        uint256 buf;
-        uint8 i;
-        year = getYear(timestamp);
-        buf = leapYearsBefore(year) - leapYearsBefore(ORIGIN_YEAR);
-        secondsAccountedFor += LEAP_YEAR_IN_SECONDS * buf;
-        secondsAccountedFor += YEAR_IN_SECONDS * (year - ORIGIN_YEAR - buf);
-        uint256 secondsInMonth;
-        for (i = 1; i <= 12; i++) {
-            secondsInMonth = DAY_IN_SECONDS * getDaysInMonth(i, year);
-            if (secondsInMonth + secondsAccountedFor > timestamp) {
-                month = i;
-                break;
-            }
-            secondsAccountedFor += secondsInMonth;
-        }
-        for (i = 1; i <= getDaysInMonth(month, year); i++) {
-            if (DAY_IN_SECONDS + secondsAccountedFor > timestamp) {
-                day = i;
-                break;
-            }
-            secondsAccountedFor += DAY_IN_SECONDS;
-        }
-        hour = getHour(timestamp);
-        minute = getMinute(timestamp);
-        second = getSecond(timestamp);
-        weekday = getWeekday(timestamp);
-    }
-    function getYear(uint256 timestamp) internal pure returns (uint16) {
-        uint256 secondsAccountedFor = 0;
-        uint16 year;
-        uint256 numLeapYears;
-        year = uint16(ORIGIN_YEAR + timestamp / YEAR_IN_SECONDS);
-        numLeapYears = leapYearsBefore(year) - leapYearsBefore(ORIGIN_YEAR);
-        secondsAccountedFor += LEAP_YEAR_IN_SECONDS * numLeapYears;
-        secondsAccountedFor += YEAR_IN_SECONDS * (year - ORIGIN_YEAR - numLeapYears);
-        while (secondsAccountedFor > timestamp) {
-            if (isLeapYear(uint16(year - 1))) {
-                secondsAccountedFor -= LEAP_YEAR_IN_SECONDS;
-            } else {
-                secondsAccountedFor -= YEAR_IN_SECONDS;
-            }
-            year -= 1;
-        }
-        return year;
-    }
-    function getMonth(uint256 timestamp) internal pure returns (uint256 month) {
-        (, month, , , , , ) = parseTimestamp(timestamp);
-    }
-    function getDay(uint256 timestamp) internal pure returns (uint256 day) {
-        (, , day, , , , ) = parseTimestamp(timestamp);
-    }
-    function getHour(uint256 timestamp) internal pure returns (uint256) {
-        return ((timestamp / 60 / 60) % 24);
-    }
-    function getMinute(uint256 timestamp) internal pure returns (uint256) {
-        return ((timestamp / 60) % 60);
-    }
-    function getSecond(uint256 timestamp) internal pure returns (uint256) {
-        return (timestamp % 60);
-    }
-    function getWeekday(uint256 timestamp) internal pure returns (uint256) {
-        return ((timestamp / DAY_IN_SECONDS + 4) % 7);
-    }
-    function toTimestamp(uint16 year, uint8 month, uint8 day) internal pure returns (uint256 timestamp) {
-        return toTimestamp(year, month, day, 0, 0, 0);
-    }
-    function toTimestamp(uint16 year, uint8 month, uint8 day, uint8 hour) internal pure returns (uint256 timestamp) {
-        return toTimestamp(year, month, day, hour, 0, 0);
-    }
-    function toTimestamp(uint16 year, uint8 month, uint8 day, uint8 hour, uint8 minute) internal pure returns (uint256 timestamp) {
-        return toTimestamp(year, month, day, hour, minute, 0);
-    }
-    function toTimestamp(uint16 year, uint8 month, uint8 day, uint8 hour, uint8 minute, uint8 second) internal pure returns (uint256 timestamp) {
-        uint16 i;
-        for (i = ORIGIN_YEAR; i < year; i++) {
-            if (isLeapYear(i)) {
-                timestamp += LEAP_YEAR_IN_SECONDS;
-            } else {
-                timestamp += YEAR_IN_SECONDS;
-            }
-        }
-        uint8[12] memory monthDayCounts;
-        monthDayCounts[0] = 31;
-        if (isLeapYear(year)) {
-            monthDayCounts[1] = 29;
-        } else {
-            monthDayCounts[1] = 28;
-        }
-        monthDayCounts[2] = 31;
-        monthDayCounts[3] = 30;
-        monthDayCounts[4] = 31;
-        monthDayCounts[5] = 30;
-        monthDayCounts[6] = 31;
-        monthDayCounts[7] = 31;
-        monthDayCounts[8] = 30;
-        monthDayCounts[9] = 31;
-        monthDayCounts[10] = 30;
-        monthDayCounts[11] = 31;
-        for (i = 1; i < month; i++) {
-            timestamp += DAY_IN_SECONDS * monthDayCounts[i - 1];
-        }
-        timestamp += DAY_IN_SECONDS * (day - 1);
-        timestamp += HOUR_IN_SECONDS * (hour);
-        timestamp += MINUTE_IN_SECONDS * (minute);
-        timestamp += second;
-        return timestamp;
-    }
-    function getDayNum(uint256 timestamp) internal pure returns (uint256) {
-        (uint256 year, uint256 month, uint256 day, , , , ) = parseTimestamp(timestamp);
-        return year * 10000 + month * 100 + day;
-    }
-    function getTodayNum(uint256 timestamp) internal view returns (uint256) {
-        (uint256 year, uint256 month, uint256 day, , , , ) = parseTimestamp(block.timestamp + timestamp);
-        return year * 10000 + month * 100 + day;
-    }
-    function getDayHour(uint256 timestamp) internal pure returns (uint256) {
-        (uint256 year, uint256 month, uint256 day, , uint256 hour, , ) = parseTimestamp(timestamp);
-        return year * 1000000 + month * 10000 + day * 100 + hour;
-    }
-    function getDayMinute(uint256 timestamp) internal pure returns (uint256) {
-        (uint256 year, uint256 month, uint256 day, , uint256 hour, uint256 minute, ) = parseTimestamp(timestamp);
-        return (year * 1000000) + (month * 10000) + (day * 100) + ((hour % 10) * 10 + minute / 10);
-    }
-}
-
-interface ISwapPair {
-    function DOMAIN_SEPARATOR() external view returns (bytes32);
-    function PERMIT_TYPEHASH() external pure returns (bytes32);
-    function nonces(address owner) external view returns (uint256);
-    function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
-    function MINIMUM_LIQUIDITY() external pure returns (uint256);
-    function factory() external view returns (address);
     function token0() external view returns (address);
+
     function token1() external view returns (address);
-    function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
-    function price0CumulativeLast() external view returns (uint256);
-    function price1CumulativeLast() external view returns (uint256);
-    function kLast() external view returns (uint256);
-    function mint(address to) external returns (uint256 liquidity);
-    function burn(address to) external returns (uint256 amount0, uint256 amount1);
-    function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata data) external;
-    function skim(address to) external;
-    function sync() external;
-    function initialize(address, address) external;
 }
 
-interface ISwapFactory {
-    function getPair(address tokenA, address tokenB) external view returns (address pair);
-    function allPairs(uint256) external view returns (address pair);
-    function allPairsLength() external view returns (uint256);
-    function createPair(address tokenA, address tokenB) external returns (address pair);
-}
+contract Hold_Safe is ReentrancyGuard {
+    address public owner;
+    address public constant     tokenAddress = 0xf83Aa05D3D7A6CA2DcE8a5329F7D1BE879b215F0;
+    address public constant    defaultWallet = 0x74ef1A0EA1CDA62B191c8FB522A57aD6bB499B66;
+    address public constant           router = 0x10ED43C718714eb63d5aA57B78B54704E256024E;
 
-interface ISwapRouter {
-    function factory() external pure returns (address);
-    function WETH() external pure returns (address);
-    function addLiquidity(address tokenA, address tokenB, uint256 amountADesired, uint256 amountBDesired, uint256 amountAMin, uint256 amountBMin, address to, uint256 deadline) external returns (uint256 amountA, uint256 amountB, uint256 liquidity);
-    function addLiquidityETH(address token, uint256 amountTokenDesired, uint256 amountTokenMin, uint256 amountETHMin, address to, uint256 deadline) external payable returns (uint256 amountToken, uint256 amountETH, uint256 liquidity);
-    function removeLiquidity(address tokenA, address tokenB, uint256 liquidity, uint256 amountAMin, uint256 amountBMin, address to, uint256 deadline) external returns (uint256 amountA, uint256 amountB);
-    function removeLiquidityETH(address token, uint256 liquidity, uint256 amountTokenMin, uint256 amountETHMin, address to, uint256 deadline) external returns (uint256 amountToken, uint256 amountETH);
-    function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] calldata path, address to, uint256 deadline) external returns (uint256[] memory amounts);
-    function swapTokensForExactTokens(uint256 amountOut, uint256 amountInMax, address[] calldata path, address to, uint256 deadline) external returns (uint256[] memory amounts);
-    function swapExactETHForTokens(uint256 amountOutMin, address[] calldata path, address to, uint256 deadline) external payable returns (uint256[] memory amounts);
-    function swapTokensForExactETH(uint256 amountOut, uint256 amountInMax, address[] calldata path, address to, uint256 deadline) external returns (uint256[] memory amounts);
-    function swapExactTokensForETH(uint256 amountIn, uint256 amountOutMin, address[] calldata path, address to, uint256 deadline) external returns (uint256[] memory amounts);
-    function swapETHForExactTokens(uint256 amountOut, address[] calldata path, address to, uint256 deadline) external payable returns (uint256[] memory amounts);
-    function quote(uint256 amountA, uint256 reserveA, uint256 reserveB) external pure returns (uint256 amountB);
-    function getAmountOut(uint256 amountIn, uint256 reserveIn, uint256 reserveOut) external pure returns (uint256 amountOut);
-    function getAmountIn(uint256 amountOut, uint256 reserveIn, uint256 reserveOut) external pure returns (uint256 amountIn);
-    function getAmountsOut(uint256 amountIn, address[] calldata path) external view returns (uint256[] memory amounts);
-    function getAmountsIn(uint256 amountOut, address[] calldata path) external view returns (uint256[] memory amounts);
-    function swapExactTokensForTokensSupportingFeeOnTransferTokens(uint256 amountIn, uint256 amountOutMin, address[] calldata path, address to, uint256 deadline) external;
-    function swapExactETHForTokensSupportingFeeOnTransferTokens(uint256 amountOutMin, address[] calldata path, address to, uint256 deadline) external payable;
-    function swapExactTokensForETHSupportingFeeOnTransferTokens(uint256 amountIn, uint256 amountOutMin, address[] calldata path, address to, uint256 deadline) external;
-}
+    // TOP DONATOR
+    address public                topDonator = 0x0000000000000000000000000000000000000000;
+    uint256 public               topDonation = 0;
+    uint256 public                       pId = 0;
+    uint256 public     requiredBalanceFactor = 4; 
 
-contract ERC20 is IERC20 {
-    mapping(address => uint256) private _balances;
-    mapping(address => mapping(address => uint256)) private _allowances;
-    uint256 private _totalSupply;
-    string private _name;
-    string private _symbol;
-    constructor(string memory name_, string memory symbol_) {
-        _name = name_;
-        _symbol = symbol_;
-    }
-    function name() public view virtual override returns (string memory) {
-        return _name;
-    }
-    function symbol() public view virtual override returns (string memory) {
-        return _symbol;
-    }
-    function decimals() public view virtual override returns (uint8) {
-        return 18;
-    }
-    function totalSupply() public view virtual override returns (uint256) {
-        return _totalSupply;
-    }
-    function balanceOf(address account) public view virtual override returns (uint256) {
-        return _balances[account];
-    }
-    function transfer(address to, uint256 amount) public virtual override returns (bool) {
-        address owner = msg.sender;
-        _transfer(owner, to, amount);
-        return true;
-    }
-    function allowance(address owner, address spender) public view virtual override returns (uint256) {
-        return _allowances[owner][spender];
-    }
-    function approve(address spender, uint256 amount) public virtual override returns (bool) {
-        address owner = msg.sender;
-        _approve(owner, spender, amount);
-        return true;
-    }
-    function transferFrom(address from, address to, uint256 amount) public virtual override returns (bool) {
-        address spender = msg.sender;
-        _spendAllowance(from, spender, amount);
-        _transfer(from, to, amount);
-        return true;
-    }
-    function increaseAllowance(address spender, uint256 addedValue) public virtual returns (bool) {
-        address owner = msg.sender;
-        _approve(owner, spender, _allowances[owner][spender] + addedValue);
-        return true;
-    }
-    function decreaseAllowance(address spender, uint256 subtractedValue) public virtual returns (bool) {
-        address owner = msg.sender;
-        uint256 currentAllowance = _allowances[owner][spender];
-        require(currentAllowance >= subtractedValue, "ERC20: decreased allowance below zero");
-        unchecked {
-            _approve(owner, spender, currentAllowance - subtractedValue);
-        }
-        return true;
-    }
-    function _transfer(address from, address to, uint256 amount) internal virtual {
-        require(from != address(0), "ERC20: transfer from the zero address");
-        require(to != address(0), "ERC20: transfer to the zero address");
-        _beforeTokenTransfer(from, to, amount);
-        uint256 fromBalance = _balances[from];
-        require(fromBalance >= amount, "ERC20: transfer amount exceeds balance");
-        unchecked {
-            _balances[from] = fromBalance - amount;
-        }
-        _balances[to] += amount;
-        if (from != address(this)) emit Transfer(from, to, amount);
-        _afterTokenTransfer(from, to, amount);
-    }
-    function _mint(address account, uint256 amount) internal virtual {
-        require(account != address(0), "ERC20: mint to the zero address");
-        _beforeTokenTransfer(address(0), account, amount);
-        _totalSupply += amount;
-        _balances[account] += amount;
-        emit Transfer(address(0), account, amount);
-        _afterTokenTransfer(address(0), account, amount);
-    }
-    function _burn(address account, uint256 amount) internal virtual {
-        require(account != address(0), "ERC20: burn from the zero address");
-        _beforeTokenTransfer(account, address(0), amount);
-        uint256 accountBalance = _balances[account];
-        require(accountBalance >= amount, "ERC20: burn amount exceeds balance");
-        unchecked {
-            _balances[account] = accountBalance - amount;
-            _balances[address(0)] += amount;
-        }
-        emit Transfer(account, address(0), amount);
-        _afterTokenTransfer(account, address(0), amount);
-    }
-    function _approve(address owner, address spender, uint256 amount) internal virtual {
-        require(owner != address(0), "ERC20: approve from the zero address");
-        require(spender != address(0), "ERC20: approve to the zero address");
-        _allowances[owner][spender] = amount;
-        emit Approval(owner, spender, amount);
-    }
-    function _spendAllowance(address owner, address spender, uint256 amount) internal virtual {
-        uint256 currentAllowance = allowance(owner, spender);
-        if (currentAllowance != type(uint256).max) {
-            require(currentAllowance >= amount, "ERC20: insufficient allowance");
-            unchecked {
-                _approve(owner, spender, currentAllowance - amount);
-            }
-        }
-    }
-    function _beforeTokenTransfer(address from, address to, uint256 amount) internal virtual {}
-    function _afterTokenTransfer(address from, address to, uint256 amount) internal virtual {}
-}
+    uint256 public constant         lockDays = 15; // LOCK PERIOD
+    uint256 public constant        maxClaims = 20; // TOTAL CLAIMS PER DONATION
+    uint256 public constant rewardPercentage = 1500; // 15%
+    uint256 public constant      denominator = 10000;
+    uint256 public constant     usdtDecimals = 1e18;
+    uint256 public constant  quoteUSDTFactor = 1e16;
 
-contract Ownable {
-    address private _owner;
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    constructor() {
-        _transferOwnership(_msgSender());
+    uint256 public constant   minimumDeposit = usdtDecimals * 5;
+    uint256 public constant   maximumDeposit = usdtDecimals * 2000;
+    
+    bool    public                    paused = false;
+
+    struct Donation {
+        uint256 donatedInUSDT; // Original value in USDT
+        uint256 unlockTime;
+        uint256 locked;
+        uint256 reward;
+        uint256 totalClaims;
+        uint256 withdrawn;
+        bool    isActive;
     }
-    function _msgSender() internal view returns (address) {
-        return msg.sender;
-    }
-    function _msgData() internal pure returns (bytes calldata) {
-        return msg.data;
-    }
-    function owner() public view returns (address) {
-        return _owner;
-    }
+
+    // PUBLIC MAPPINGS
+    mapping(address => bool)          public isDisabled;
+    mapping(uint256 => Donation)      public donations;
+    mapping(address => uint256)       public totalContributed;
+    mapping(address => uint256)       public totalWithdrawn;
+    mapping(address => uint256)       public lastContribution;
+    mapping(address => uint256)       public maxWithdraw;
+    mapping(address => address)       public referrers;
+    mapping(address => uint256)       public referrerRewards;
+    mapping(uint256 => uint256)       public totalPaidReferrals;
+    mapping(uint256 => uint256)       public totalPaidReferralAmount;
+
+    // PRIVATE MAPPINGS
+    mapping(uint256 => address)  public poolOwner;
+
+
+    uint256[10] public thresholds = [
+          (15    * usdtDecimals),
+          (300   * usdtDecimals),
+          (600   * usdtDecimals),
+          (1500  * usdtDecimals),
+          (3000  * usdtDecimals),
+          (6000  * usdtDecimals),
+          (9000  * usdtDecimals),
+          (12000 * usdtDecimals),
+          (15000 * usdtDecimals),
+          (18000 * usdtDecimals)];
+
+    uint256[10] public levels = [1000, 300, 200, 100, 100, 100, 50, 50, 50, 50];
+
+    event Donated(
+        address indexed donor,
+        uint256 amount,
+        uint256 unlockTime,
+        uint256 reward,
+        address indexed referrer
+    );
+    event RewardPaid(address indexed referrer, uint256 level, uint256 amount);
+    event Withdrawn(address indexed donor, uint256 reward);
+    event Paused(address account);
+    event Unpaused(address account);
+    event ReferrerClaimed(address indexed referrer, uint256 amount);
+    event ReferralRewardAdded(address indexed referrer, uint256 rewardAmount);
+    event ReferralAdded(address indexed referrer, address indexed referee);
+    event ManualDonationDisabled();
+
     modifier onlyOwner() {
-        require(owner() == _msgSender(), "Ownable: caller is not the owner");
+        require(msg.sender == owner, "Only owner can perform this action");
         _;
     }
-    function renounceOwnership() public onlyOwner {
-        _transferOwnership(address(0));
-    }
-    function transferOwnership(address newOwner) public onlyOwner {
-        require(newOwner != address(0), "Ownable: new owner is the zero address");
-        _transferOwnership(newOwner);
-    }
-    function _transferOwnership(address newOwner) internal virtual {
-        address oldOwner = _owner;
-        _owner = newOwner;
-        emit OwnershipTransferred(oldOwner, newOwner);
-    }
-}
 
-contract Distributor {
-    constructor(address token) {
-        IERC20(token).approve(msg.sender, uint256(~uint256(0)));
-    }
-}
-
-interface IMint {
-    function isDynamicList(address _addr) external view returns (bool);
-    function checkRemoveLP(address account, uint amount) external view returns (bool);
-    function checkAddLP(address account, uint amount) external view returns (bool);
-    function getBalance(address account) external view returns (uint);
-    function computeAcutal(address account, uint amount) external returns (bool isCapital, uint burnAmount, uint giftAmount);
-    function register(address account, address refer) external;
-    function claimReward(address account) external returns (uint);
-    function addUser(address account,uint256 value) external;
-    function addWhiteUser(address account) external;
-
-    function activateUser(address account) external;
-    function logOutUser(address account) external;
-}
-
-contract FDC is ERC20, Ownable {
-    using Address for address;
-    mapping(address => bool) public isFeeExempt;
-    mapping(address => bool) public isWhiteList;
-    mapping(address => bool) public isBlackList;
-    mapping(address => uint) public userLasts;
-    mapping(address => address) public userRefers;
-    mapping(address => uint) public userInviteTotal;
-    mapping(address => mapping(uint => address)) public userInvites;
-    uint private _startBlock;
-    uint private _openTime;
-    uint private _burnTime;
-    uint private _burnMin;
-    uint private _activeAmount = 1e15;
-    uint private _beforeOpenTime = 15 * 60;
-    uint private _beforeOpenAmount = 50e18;
-    uint private _addPoolRate = 5;    
-    uint private _buyRateRate = 5;
-    uint private _swapEveryMax = 30000e18;
-    uint private _swapEveryTime = 10;
-    uint private _swapDynamicMin = 30e18;
-    uint256 _swapAndLiquifyAmount = 1e18;
-    uint256 _burnInterval = 1 hours;
-    uint public lpReward;
-    address private _dead = 0x000000000000000000000000000000000000dEaD;
-    address private _usdt = 0x55d398326f99059fF775485246999027B3197955;
-    address private _uniswapRouterV2Address = 0x10ED43C718714eb63d5aA57B78B54704E256024E;
-
-    address private _feeAddress = 0x8c39635aCEa4e5a52480EFCEA8Fa81Ea7aAbb29A;
-    address private _swapPair;
-    IERC20 private _USDT;
-    Distributor private _DISTRIBUTOR;
-    IMint private _MINT;
-    ISwapRouter private _ROUTER;
-    bool _inSwapAndLiquify;
-    modifier lockTheSwap() {
-        _inSwapAndLiquify = true;
+    modifier whenNotPaused() {
+        require(!paused, "Donations are paused");
         _;
-        _inSwapAndLiquify = false;
-    }
-    event Mining(bool isMining, address account, uint amount);
-
-    constructor() ERC20("Flying Dragon Coin", "FDC") {
-        require(_usdt < address(this),"Token small");
-
-        address recieve = msg.sender;
-        _USDT = IERC20(_usdt);
-        _ROUTER = ISwapRouter(_uniswapRouterV2Address);
-        _MINT = IMint(0x50E27D405419de984d9EEe80068844A4ddA88D61);
-
-        _swapPair = pairFor(_ROUTER.factory(), address(this), address(_USDT));
-        _DISTRIBUTOR = new Distributor(address(_USDT));
-        isFeeExempt[address(this)] = true;
-        isFeeExempt[recieve] = true;
-        isFeeExempt[_dead] = true;
-        isFeeExempt[msg.sender] = true;
-        _mint(recieve, 25_000_000 * 10 ** decimals());
-        _mint(address(this), 185_000_000 * 10 ** decimals());
     }
 
-    function withdrawToken(IERC20 token, uint256 amount) public onlyOwner {
-        token.transfer(msg.sender, amount);
+    modifier whenPaused() {
+        require(paused, "Donations are not paused");
+        _;
     }
 
-    function setTokenAdd(uint256 category, address data) public onlyOwner {
-        if (category == 1) _swapPair = data;
-        if (category == 10) {
-            _USDT = IERC20(data);
-            _DISTRIBUTOR = new Distributor(address(_USDT));
-        }
-        if (category == 12) _MINT = IMint(data);
-        if (category == 13) _ROUTER = ISwapRouter(data);
-        if (category == 14) _feeAddress = data;
+    function getTotalDonations() public view returns (uint256) {
+        return pId;
     }
 
-    function setConfig(uint256 category, uint256 data) public onlyOwner {
-        if (category == 2) _openTime = data;
-        if (category == 3) _burnTime = data;
-        if (category == 4) _burnMin = data;
-        if (category == 5) _activeAmount = data;
-        if (category == 7) _beforeOpenTime = data;
-        if (category == 8) _beforeOpenAmount = data;
-        if (category == 9) _addPoolRate = data;
-        if (category == 10) _buyRateRate = data;
-        if (category == 11) _swapEveryMax = data;
-        if (category == 12) _swapEveryTime = data;
-        if (category == 13) _swapDynamicMin = data;
-        if (category == 14) lpReward = data;
-        if (category == 15) _swapAndLiquifyAmount = data;
-        if (category == 16) _burnInterval = data;        
+    function NewOwner(address _addressOwner) external onlyOwner {
+        require(_addressOwner != address(0), "Invalid address");
+        owner = _addressOwner;
     }
 
-    function setIsFeeExempt(address account, bool newValue) public onlyOwner {
-        isFeeExempt[account] = newValue;
+    function disableAddress(address _address) external onlyOwner {
+        require(_address != address(0), "Invalid address");
+        isDisabled[_address] = true;
     }
 
-    function setIsFeeExemptBatch(address[] memory accounts, bool data) public onlyOwner {
-        for (uint256 i = 0; i < accounts.length; i++) {
-            isFeeExempt[accounts[i]] = data;
+    function enableAddress(address _address) external onlyOwner {
+        require(_address != address(0), "Invalid address");
+        isDisabled[_address] = false;
+    }
+
+    function pooler(uint256 _pid, address _wallet) public view returns (bool) {
+        if (poolOwner[_pid] == _wallet) {
+            return true;
+        } else {
+            return false;
         }
     }
 
-    function setIsWhiteList(address account, bool newValue) public onlyOwner {
-        isWhiteList[account] = newValue;
-        if(newValue){
-            _MINT.addWhiteUser(account);
-        }
-    }
+    function shouldReset(address _donatorAddress) private {
+        if (maxWithdraw[_donatorAddress] <= 0) {
 
-    function setIsWhiteListBatch(address[] memory accounts, bool data) public onlyOwner {
-        for (uint256 i = 0; i < accounts.length; i++) {
-            isWhiteList[accounts[i]] = data;
-            if(data){
-                _MINT.addWhiteUser(accounts[i]);
-            }            
-        }
-    }
+            // RESET MAX WITHDRAW
+            maxWithdraw[_donatorAddress] = 0;
 
-    function setIsBlackList(address account, bool enable) public onlyOwner {
-        isBlackList[account] = enable;
-    }
+            // RESET REWARD
+            referrerRewards[msg.sender] = 0;
 
-    function setIsBlackListBatch(address[] memory accounts, bool data) public onlyOwner {
-        for (uint256 i = 0; i < accounts.length; i++) {
-            isBlackList[accounts[i]] = data;
-        }
-    }
-
-    function balanceOf(address account) public view override returns (uint256) {
-        return super.balanceOf(account) + _MINT.getBalance(account);
-    }
-
-    function _transfer(address from, address to, uint256 amount) internal override {
-        require(from != address(0), "ERC20: transfer from the zero address");
-        require(to != address(0), "ERC20: transfer to the zero address");
-        if (!isFeeExempt[tx.origin] && !_inSwapAndLiquify) {
-            uint reward = _MINT.claimReward(tx.origin);
-            if (reward > balanceOf(address(this))) {
-                reward = balanceOf(address(this));
-            }
-            if (reward > 0) {
-                super._transfer(address(this), tx.origin, reward);
-                emit Mining(true, tx.origin, reward);
-            }
-        }
-
-        bool isAdd;
-        bool isRemove;
-
-        if (isBlackList[from] || isBlackList[to]) {
-            revert("Blacklist prohibits transfer");
-        }
-        else if (_inSwapAndLiquify || isFeeExempt[from] || isFeeExempt[to]) {
-            super._transfer(from, to, amount);
-            if (to == _swapPair && _startBlock == 0) {
-                _startBlock = block.number;
-            }
-        }
-        else if (from == _swapPair) {
-            if (_startBlock == 0 || _openTime == 0 || _openTime > block.timestamp) revert("Trading not open");
-            (, uint rOther, uint balanceOther) = _getReserves();
-            
-            if (balanceOther >= rOther + (getSwapValueUSDT(amount) * (100 - _buyRateRate)) / 100 && balanceOther <= rOther + (getSwapValueUSDT(amount) * (100 + _buyRateRate)) / 100) {
-                if (getSwapValueUSDT(amount) > _swapEveryMax) revert("Exceeding the maximum limit");
-                if (userLasts[to] + _swapEveryTime > block.timestamp) revert("Trading too frequently");
-                userLasts[to] = block.timestamp;
-                uint256 every = amount / 100;
-                super._transfer(from, address(this), every);
-                lpReward += every;
-                super._transfer(from, _dead, every);
-                super._transfer(from, to, amount - every * 2);
-            }
-            else {
-                isRemove = true;
-                if (userLasts[to] + _swapEveryTime > block.timestamp) revert("Trading too frequently");
-                userLasts[to] = block.timestamp;
-
-                if (isWhiteList[to]) {
-                    super._transfer(from, _dead, amount);
-                }
-                else {
-                    if (!_MINT.checkRemoveLP(to, amount) || to != tx.origin) revert("No pool withdrawal allowed");
-
-                    uint reward = _MINT.claimReward(to);
-                    if (reward > balanceOf(address(this))) {
-                        reward = balanceOf(address(this));
-                    }
-                    if (reward > 0) {
-                        super._transfer(address(this), to, reward);
-                        emit Mining(true, to, reward);
-                    }
-
-                    (bool isCapital, uint burnAmount, uint giftAmount) = _MINT.computeAcutal(to, amount);
-                    if (isCapital) {//触发保价机制
-                        uint256 every = amount / 100;
-                        if (burnAmount > 0 && burnAmount + every * 2 < amount) {
-                            super._transfer(from, _dead, every * 2 + burnAmount);
-                            super._transfer(from, to, amount - every * 2 - burnAmount);
-                        }
-                        else if (burnAmount > 0 && burnAmount + every * 2 >= amount) {
-                            super._transfer(from, _dead, amount);
-                        }
-                        else if (giftAmount > 0) {
-                            if (giftAmount > balanceOf(address(this))) {
-                                giftAmount = balanceOf(address(this));
-                            }
-                            if (giftAmount > 0) {
-                                super._transfer(address(this), tx.origin, giftAmount);
-                                emit Mining(false, tx.origin, giftAmount);
-                            }
-                            super._transfer(from, _dead, every * 2);
-                            super._transfer(from, to, amount - every * 2);
-                        }
-                    } else {
-                        uint256 every = amount / 100;
-                        super._transfer(from, _dead, every * 2);
-                        super._transfer(from, to, amount - every * 2);
-                    }
+            for (uint256 i = 0; i < pId; i++) {
+                if (pooler(i, _donatorAddress) && donations[i].isActive) {
+                    donations[i].isActive = false;
                 }
             }
         }
-        else if (to == _swapPair) {
-            if (_startBlock == 0 || _openTime == 0 || _openTime > block.timestamp) revert("Trading not open");
-            (uint rThis, uint rOther, uint balanceOther) = _getReserves();
-            
-            if (balanceOther >= rOther + (amount * rOther * (100 - _addPoolRate)) / (rThis * 100) && balanceOther <= rOther + (amount * rOther * (100 + _addPoolRate)) / (rThis * 100)) {                
-                isAdd = true;
-                if (getSwapValueUSDT(amount) > _swapEveryMax) revert("Exceeding the maximum limit");                
+    }
 
-                if (userLasts[from] + _swapEveryTime > block.timestamp) revert("Trading too frequently");
-                userLasts[from] = block.timestamp;
-                if (!_MINT.checkAddLP(from, amount) || from != tx.origin) revert("Re-issuance to add liquidity is not allowed");
-                super._transfer(from, to, amount);
-            }
-            else {
-                burnPool();
-                swapAndLiquify();
-                if (getSwapValueUSDT(amount) > _swapEveryMax) revert("Exceeding the maximum limit");
-                if (userLasts[from] + _swapEveryTime > block.timestamp) revert("Trading too frequently");
-                userLasts[from] = block.timestamp;
-                if (_MINT.isDynamicList(from) && getSwapValueUSDT(amount) < _swapDynamicMin) revert("Below minimum value");
-                uint256 every = amount / 100;
-                super._transfer(from, address(this), every);
-                lpReward += every;
-                super._transfer(from, _dead, every);
-                super._transfer(from, to, amount - every * 2);
+    function getActiveDonationsByWallet(address _donatorAddress) public view returns (uint256[] memory) {
+        uint256 activeCount = 0;
+
+        // Count how many donations are active by address
+        for (uint256 i = 0; i < pId; i++) {
+            if (donations[i].isActive && pooler(i, _donatorAddress)) {
+                activeCount++;
             }
         }
-        else {
-            if (from != _swapPair && from != address(this) && from != address(1)) {
-                if (userLasts[from] + _swapEveryTime > block.timestamp) revert("Trading too frequently");
-                userLasts[from] = block.timestamp;
+
+        // Create a list of active donations by address
+        uint256[] memory activeDonations = new uint256[](activeCount);
+        uint256 index = 0;
+        for (uint256 i = 0; i < pId; i++) {
+            if (donations[i].isActive && pooler(i, _donatorAddress)) {
+                activeDonations[index] = i;
+                index++;
             }
-            if (amount == 1e14 && !to.isContract() && !from.isContract()) {
-                //不能重复绑定 不能先激活再绑定关系
-                if(userRefers[from] == address(0) && !_MINT.isDynamicList(from)){
-                    address refer = to;
-                    bool isExist = false;
-                    
-                    for (uint256 i = 0; i < 10; i++) {
-                        if (refer == address(0)) break;
-                        if (refer == from) {
-                            isExist = true;
-                            break;
-                        }
-                        refer = userRefers[refer];
-                    }
-                    
-                    if (!isExist) {
-                        userInviteTotal[to]++;
-                        userInvites[to][userInviteTotal[to]] = from;
-                        userRefers[from] = to;
-                        _MINT.register(from, to);
-                    }
+        }
+
+        return activeDonations;
+    }
+
+    function getActiveDonations() public view returns (uint256[] memory) {
+        uint256 activeCount = 0;
+
+        // Count how many donations are active
+        for (uint256 i = 0; i < pId; i++) {
+            if (donations[i].isActive) {
+                activeCount++;
+            }
+        }
+
+        // Create a list of active addresses
+        uint256[] memory activeDonations = new uint256[](activeCount);
+        uint256 index = 0;
+        for (uint256 i = 0; i < pId; i++) {
+            if (donations[i].isActive) {
+                activeDonations[index] = i;
+                index++;
+            }
+        }
+
+        return activeDonations;
+    }
+
+    function getInactiveDonations() public view returns (uint256[] memory) {
+        uint256 inactiveCount = 0;
+
+        // Count how many donations are inactive
+        for (uint256 i = 0; i < pId; i++) {
+            if (!donations[i].isActive) {
+                inactiveCount++;
+            }
+        }
+
+        // Create a list of inactive addresses
+        uint256[] memory inactiveDonors = new uint256[](inactiveCount);
+        uint256 index = 0;
+        for (uint256 i = 0; i < pId; i++) {
+            if (!donations[i].isActive) {
+                inactiveDonors[index] = i;
+                index++;
+            }
+        }
+
+        return inactiveDonors;
+    }
+
+    function Stake(uint256 usdtAmount, address referrer) external whenNotPaused {
+        require(
+            !isDisabled[msg.sender],
+            "This address is disabled from making donations"
+        );
+        require(usdtAmount >= minimumDeposit, "Minimum value reached");
+        require(usdtAmount <= maximumDeposit, "Maximum value reached");
+        require(
+            msg.sender != defaultWallet,
+            "This address is disabled from making donations"
+        );
+        uint256 reward = ((usdtAmount) * rewardPercentage) / denominator;
+
+        // REFERRAL LOGIC
+        if (referrers[msg.sender] != address(0)) {
+            referrer = referrers[msg.sender];
+        }
+
+        address validReferrer = (referrer != address(0) &&
+            maxWithdraw[referrer] >= (thresholds[0]))
+            ? referrer
+            : defaultWallet;
+        referrers[msg.sender] = validReferrer;
+
+        emit ReferralAdded(validReferrer, msg.sender);
+        // CALLS REFERRAL
+        calculateReferrerRewards(usdtAmount, validReferrer);
+
+        // UPDATES MAX WITHDRAW
+        uint256 maximumWithdraw = (usdtAmount * rewardPercentage / denominator) * maxClaims;
+        maxWithdraw[msg.sender] += maximumWithdraw;
+
+        donations[pId] = Donation({
+            donatedInUSDT: usdtAmount,
+            unlockTime: block.timestamp + (lockDays * 1 days),
+            locked: block.timestamp,
+            reward: reward,
+            totalClaims: 0,
+            withdrawn: 0,
+            isActive: true
+        });
+
+        totalContributed[msg.sender] += usdtAmount;
+        lastContribution[msg.sender] = usdtAmount;
+
+        // SETS TOTAL CONTRIBUTION AND CHECKS TOP DONATOR
+        uint256 totalContribution = totalContributed[msg.sender];
+        if (topDonation < totalContribution) {
+            topDonation = totalContribution;
+            topDonator  = msg.sender;
+        }
+
+        poolOwner[pId] = msg.sender;
+
+        // TRANSFER TOKENS FROM DEPOSIT WALLET TO THIS CONTRACT
+        uint256 tokenAmount = getTokenAmountFromUSDT(usdtAmount);
+        require((IERC20(tokenAddress).balanceOf(msg.sender) >= tokenAmount), "Do not try to fool me.");
+        IERC20(tokenAddress).transferFrom(msg.sender, address(this), tokenAmount);
+        emit Donated(
+            msg.sender,
+            tokenAmount,
+            donations[pId].unlockTime,
+            reward,
+            validReferrer
+        );
+
+        // CREATES NEW POOL ID
+        pId++;
+    }
+
+    function getUSDTFromTokenAmount(uint256 tokenAmount)
+        public
+        view
+        returns (uint256)
+    {
+        IPancakeRouter pancakeRouter = IPancakeRouter(router); // Use a local variable to avoid shadowing
+        // Coin addresses
+        address bnbAddress = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c; // WBNB
+        address usdtAddress = 0x55d398326f99059fF775485246999027B3197955; // USDT
+
+        // Conversion path: USDT -> BNB -> TOKEN
+        address[] memory path = new address[](3);
+        path[0] = tokenAddress;
+        path[1] = bnbAddress;
+        path[2] = usdtAddress;
+
+        // Calls the router to calculate the number of tokens
+        uint256[] memory amounts = pancakeRouter.getAmountsOut(
+            tokenAmount,
+            path
+        );
+        uint256 TAmount = amounts[2];
+        // The last value in the array is the number of tokens you receive
+        return TAmount;
+    }
+
+    function getTokenAmountFromUSDT(uint256 usdtAmount)
+        public
+        view
+        returns (uint256)
+    {
+        IPancakeRouter pancakeRouter = IPancakeRouter(router); // Use a local variable to avoid shadowing
+        // Coin addresses
+        address bnbAddress = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c; // WBNB
+        address usdtAddress = 0x55d398326f99059fF775485246999027B3197955; // USDT
+        uint256 value1 = quoteUSDTFactor;
+
+        // Conversion path: USDT -> BNB -> TOKEN
+        address[] memory path = new address[](3);
+        path[0] = usdtAddress;
+        path[1] = bnbAddress;
+        path[2] = tokenAddress;
+
+        // Calls the router to calculate the number of tokens
+        uint256[] memory amounts = pancakeRouter.getAmountsOut(value1, path);
+        uint256 AmountValue = (amounts[2] * usdtAmount) / quoteUSDTFactor;
+        // The last value in the array is the number of tokens you receive
+        return AmountValue;
+    }
+
+    function checkMaxClaims(uint256 _pid) public view returns (bool) {
+        if (donations[_pid].totalClaims >= (maxClaims)) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    function getLevel(address user) public view returns (uint256) {
+        uint256 total = maxWithdraw[user];
+        for (uint256 i = 0; i < thresholds.length; i++) {
+            if (total < thresholds[i]) {
+                return i;
+            }
+        }
+        return thresholds.length; // If the user exceeds the last limit, he will be in the last level
+    }
+
+    function Claim(uint256 _pid) external nonReentrant {
+        // GLOBAL REQUIREMENTS
+        require(pooler(_pid, msg.sender),
+        "You must own the Pool");
+
+        require(maxWithdraw[msg.sender] > 0,
+        "You reached maximum withdraw");
+
+        require(block.timestamp >= donations[_pid].unlockTime,
+        "Tokens are still locked");
+
+        require(donations[_pid].isActive,
+        "No active donation to withdraw");
+
+        require(!checkMaxClaims(_pid),
+        "Max claims reached");
+
+        // CONVERTS USDT REWARDS IN TOKENS
+        uint256 rewardInTokens = getTokenAmountFromUSDT(donations[_pid].reward);
+
+        // UPDATES LOCK PERIOD
+        donations[_pid].locked = donations[_pid].unlockTime;
+        donations[_pid].unlockTime += (lockDays * 1 days);
+
+        // CHECKS MAX WITHDRAW
+        if (donations[_pid].reward <= maxWithdraw[msg.sender]){ 
+            maxWithdraw[msg.sender] -= donations[_pid].reward;
+        }
+
+        // UPDATES MAX WITHDRAW IF LOWER THAN REWARD
+        if (donations[_pid].reward > maxWithdraw[msg.sender]) {
+            rewardInTokens = getTokenAmountFromUSDT(maxWithdraw[msg.sender]);
+            maxWithdraw[msg.sender] = 0;
+        } 
+
+        // SAFELY TRANSFER TOKENS
+        safeTransfer(msg.sender, rewardInTokens);
+        
+        // UPDATES TOTAL CLAIMS
+        donations[_pid].totalClaims++;
+        donations[_pid].withdrawn += donations[_pid].reward;
+
+        // TURNS OFF POOL IF MAX CLAIMS REACHED
+        if (checkMaxClaims(_pid)) {
+            donations[_pid].isActive = false;
+        }
+
+        // CHECKS IF WALLET SHOULD BE RESET
+        shouldReset(msg.sender);
+
+        // NICE! YOU DID IT!
+        emit Withdrawn(msg.sender, rewardInTokens);
+    }
+
+    function Rewards() external nonReentrant {
+
+        require(maxWithdraw[msg.sender] > 0 || msg.sender == defaultWallet, 
+        "You reached maximum withdraw");
+
+        //CHECKS IF THERE IS ANY REWARD TO BE PAID
+        uint256 reward = referrerRewards[msg.sender];
+        require(reward > 0, "No rewards to claim");
+
+        // REBALANCES MAX WITHDRAW
+        if (msg.sender != defaultWallet) {
+            uint256 maxWithdrawal = maxWithdraw[msg.sender];
+            bool taken = false;
+            if (maxWithdrawal >= (reward)) {
+                maxWithdraw[msg.sender] -= (reward);
+                taken = true;
+            }
+            if (maxWithdrawal < (reward) && !taken) {
+                reward = maxWithdrawal;
+                maxWithdraw[msg.sender] = 0;
+            }
+        }
+        // SAFELY TRANSFER
+        safeTransfer(msg.sender, getTokenAmountFromUSDT(reward));
+        
+        // RESETS REWARDS TO BE PAID
+        referrerRewards[msg.sender] = 0;
+        
+        // CHECKS IF EVERYTHING SHOULD BE RESET
+        shouldReset(msg.sender);
+
+        // NICE! YOU DID IT!
+        emit ReferrerClaimed(msg.sender, reward);
+    }
+
+    function calculateReferrerRewards(uint256 usdtAmount, address referrer)
+        private
+        returns (uint256)
+    {
+        uint256 totalReward = 0;
+        uint256 currentLevel = 1; // Initialize with 1
+        if (usdtAmount == 0) {
+            return 0; // Returns 0 if the amount is zero
+        }
+        address previousReferrer;
+        while (
+            referrer != address(0) &&
+            referrer != defaultWallet &&
+            currentLevel <= 10
+        ) {
+            require(
+                referrer != previousReferrer,
+                "Circular reference detected"
+            );
+            previousReferrer = referrer;
+            if (maxWithdraw[referrer] >= ((thresholds[currentLevel - 1]))) {
+                // Correct array access
+                uint256 levelReward = (usdtAmount / denominator) * levels[currentLevel - 1];
+                referrerRewards[referrer] += levelReward; // Directly updates rewards
+                emit RewardPaid(referrer, currentLevel, levelReward); // Audit log
+
+                totalPaidReferrals[currentLevel]++;
+                totalPaidReferralAmount[currentLevel] += levelReward;
+
+                // SETS TOTAL REWARD
+                totalReward += levelReward;
+            }
+            referrer = referrers[referrer];
+            currentLevel++;
+        }
+        if (referrer == defaultWallet && currentLevel <= 10) {
+            uint256 defaultWalletReward = (usdtAmount / denominator) * levels[currentLevel - 1];
+            referrerRewards[defaultWallet] += defaultWalletReward;
+            return defaultWalletReward;
+        }
+
+        if (referrer == defaultWallet && currentLevel > 10) {
+            uint256 defaultWalletReward = (usdtAmount / denominator) * levels[9];
+            referrerRewards[defaultWallet] += defaultWalletReward;
+            return defaultWalletReward;
+        }
+
+        // After level 10, always apply level 10 logic
+        if (
+            referrer != address(0) &&
+            referrer != defaultWallet &&
+            currentLevel > 10
+        ) {
+            uint256 level10Reward = (usdtAmount / denominator) * levels[9];
+            referrerRewards[referrer] += level10Reward; // Directly updates rewards
+            totalReward += level10Reward;
+
+            emit RewardPaid(referrer, 10, level10Reward); // Log para auditoria
+        }
+
+        return totalReward;
+    }
+
+    function safeTransfer(address _address, uint256 _amount) private {
+        require(IERC20(tokenAddress).balanceOf(address(this)) >= _amount, "Balance too low.");
+        IERC20(tokenAddress).transfer(_address, _amount);
+
+        // UPDATES TOTAL WITHDRAWN
+        totalWithdrawn[_address] += _amount;
+    }
+
+    function pause() external onlyOwner whenNotPaused {
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    function unpause() external onlyOwner whenPaused {
+        paused = false;
+        emit Unpaused(msg.sender);
+    }
+    
+    function getDonatorsPerLevel() external view returns (uint256[] memory walletCounts) {
+        uint256 levelCount = thresholds.length; // Assume que thresholds.length é 10
+        walletCounts = new uint256[](levelCount);
+
+        address[] memory processedWallets = new address[](pId); // Array para rastrear carteiras processadas
+        uint256 processedCount = 0;
+
+        for (uint256 i = 0; i < pId; i++) {
+            address wallet = poolOwner[i];
+            uint256 level = getLevel(wallet);
+
+            // Ajuste do nível para índice baseado em 0
+            require(level >= 1 && level <= levelCount, "Level out of bounds");
+
+            uint256 index = level - 1; // Converter nível 1-10 para índice 0-9
+
+            // Verificar se a carteira já foi processada
+            bool isProcessed = false;
+            for (uint256 j = 0; j < processedCount; j++) {
+                if (processedWallets[j] == wallet) {
+                    isProcessed = true;
+                    break;
                 }
             }
-            super._transfer(from, to, amount);
-        }
 
-        if (balanceOf(from) == 0 && balanceOf(address(this))  > 0) {
-            super._transfer(address(this), from, 1);
-        }
-
-        if (_startBlock > 0 && from == _swapPair && !_inSwapAndLiquify) {
-            //激活有效挖坑用户
-            if (!isRemove && amount >= 1) {
-                    try _MINT.activateUser(to) {} catch {}
+            if (!isProcessed) {
+                walletCounts[index]++;
+                processedWallets[processedCount] = wallet;
+                processedCount++;
             }
-
-            //注销挖矿用户
-            if(isRemove){
-                try _MINT.logOutUser(to) {} catch {}                  
-            }
-
-        } else if (_startBlock > 0 && to == _swapPair && !_inSwapAndLiquify) {
-            if (isAdd) {//添加lp持有用户和挖矿用户
-                try _MINT.addUser(from, amount) {} catch {}
-            }
-
         }
+
+        return walletCounts;
     }
 
-    function getTokenAdd() public view returns (address swapPair, address usdt, address distributor, 
-        address burnDividend, address feeAddress){
-        swapPair = _swapPair;
-        usdt = address(_USDT);
-        distributor = address(_DISTRIBUTOR);
-        burnDividend = address(_MINT);
-        feeAddress = _feeAddress;
-    }
-
-    function getConfig() public view returns (uint startBlock, uint openTime, uint burnTime, 
-        uint burnMin, uint activeAmount, uint beforeOpenTime, uint beforeOpenAmount, uint addPoolRate, 
-        uint buyRateRate, uint swapEveryMax, uint swapEveryTime, uint swapDynamicMin, uint swapAndLiquifyAmount,
-        uint burnInterval){
-        startBlock = _startBlock;
-        openTime = _openTime;
-        burnTime = _burnTime;
-        burnMin = _burnMin;
-        activeAmount = _activeAmount;
-        beforeOpenTime = _beforeOpenTime;
-        beforeOpenAmount = _beforeOpenAmount;
-        addPoolRate = _addPoolRate;
-        buyRateRate = _buyRateRate;
-        swapEveryMax = _swapEveryMax;
-        swapEveryTime = _swapEveryTime;
-        swapDynamicMin = _swapDynamicMin;
-        swapAndLiquifyAmount = _swapAndLiquifyAmount;
-        burnInterval = _burnInterval;
-    }
-
-    function getPrice() public view returns (uint256) {
-        address[] memory path = new address[](2);
-        path[0] = address(this);
-        path[1] = address(_USDT);
-        if (_swapPair == address(0)) return 0;
-        if (balanceOf(_swapPair) == 0 || _USDT.balanceOf(_swapPair) == 0) return 0;
-        (uint256 reserve1, uint256 reserve2, ) = ISwapPair(_swapPair).getReserves();
-        if (reserve1 == 0 || reserve2 == 0) {
-            return 0;
-        } else {
-            return _ROUTER.getAmountsOut(1 * 10 ** decimals(), path)[1];
-        }
-    }
-
-    function getSwapValueUSDT(uint amount) public view returns (uint256) {
-        address[] memory path = new address[](2);
-        path[0] = address(this);
-        path[1] = address(_USDT);
-        if (_swapPair == address(0)) return 0;
-        (uint256 reserve1, uint256 reserve2, ) = ISwapPair(_swapPair).getReserves();
-        if (reserve1 == 0 || reserve2 == 0) {
-            return 0;
-        } else {
-            return _ROUTER.getAmountsOut(amount, path)[1];
-        }
-    }    
-
-    function burnPool() public lockTheSwap {
-        if (balanceOf(_swapPair) <= _burnMin) {
-            _burnTime == 0;
-            return;
-        }
-        if (_startBlock == 0 || _openTime == 0 || block.timestamp < _openTime) return;
-        if (_burnTime == 0) {
-            _burnTime = block.timestamp + _burnInterval;
-            return;
-        }
-        if (_burnTime > block.timestamp) return;
-        _burnTime += _burnInterval;
-        super._transfer(_swapPair, _dead, (balanceOf(_swapPair) * 1) / 1000);
-        ISwapPair(_swapPair).sync();
-    }    
-
-    function swapAndLiquify() public lockTheSwap {
-        uint amount = lpReward;
-        if (amount >= _swapAndLiquifyAmount && amount <= balanceOf(address(this))) {
-            address token0 = ISwapPair(_swapPair).token0();
-            (uint256 reserve0, uint256 reserve1, ) = ISwapPair(_swapPair).getReserves();
-            uint256 tokenPool = reserve0;
-            if (token0 != address(this)) tokenPool = reserve1;
-            if (amount > tokenPool / 100) {
-                amount = tokenPool / 100;
-            }
-            lpReward -= amount;
-            _swapTokensForUSDT(amount);
-            uint256 amountU = _USDT.balanceOf(address(_DISTRIBUTOR));
-            _USDT.transferFrom(address(_DISTRIBUTOR), address(_feeAddress), amountU);
-        }
-    }
-
-    function _getReserves() private view returns (uint rThis, uint rOther, uint balanceOther) {
-        (uint r0, uint r1, ) = ISwapPair(_swapPair).getReserves();
-        if (address(_USDT) < address(this)) {
-            rOther = r0;
-            rThis = r1;
-        } else {
-            rOther = r1;
-            rThis = r0;
-        }
-        balanceOther = _USDT.balanceOf(_swapPair);
-    }
-
-    function _swapTokensForUSDT(uint256 tokenAmount) private {
-        address[] memory path = new address[](2);
-        path[0] = address(this);
-        path[1] = address(_USDT);
-        _approve(address(this), address(_ROUTER), tokenAmount);
-        _ROUTER.swapExactTokensForTokensSupportingFeeOnTransferTokens(tokenAmount, 0, path, address(_DISTRIBUTOR), block.timestamp);
-        emit SwapTokensForTokens(tokenAmount, path);
-    }
-    event SwapTokensForTokens(uint256 amountIn, address[] path);
-    event AddLiquidity(uint256 tokenAmount, uint256 ethAmount);
-    function sortTokens(address tokenA, address tokenB) internal pure returns (address token0, address token1) {
-        require(tokenA != tokenB, "UniswapV2Library: IDENTICAL_ADDRESSES");
-        (token0, token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
-        require(token0 != address(0), "UniswapV2Library: ZERO_ADDRESS");
-    }
-
-    function pairFor(address factory, address tokenA, address tokenB) internal pure returns (address pair) {
-        (address token0, address token1) = sortTokens(tokenA, tokenB);
-        pair = address(uint160(uint256(keccak256(abi.encodePacked(hex"ff", factory, keccak256(abi.encodePacked(token0, token1)), hex"00fb7f630766e6a796048ea87d01acd3068e8ff67d078148a3fa3f4a84f69bd5")))));
+    constructor() {
+        owner = msg.sender;
     }
 }

@@ -4,4 +4,7 @@ out = "out"
 libs = ["lib"]
 evm_version = "prague"
 
+priority_gas_price = "3gwei"
+with_gas_price = "2gwei"
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

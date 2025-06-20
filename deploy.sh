@@ -55,4 +55,10 @@ source "$env_file"
 
 forge fmt
 
-forge script "$script_file" --rpc-url "$RPC_URL" --private-key "$PRIVATE_KEY" --etherscan-api-key "$ETHERSCAN_API_KEY" --broadcast --verify "${extra_args[@]}"
+PRIVATE_KEY=$PRIVATE_KEY \
+forge script \
+  --rpc-url "$RPC_URL" \
+  --private-key "$PRIVATE_KEY" \
+  --broadcast \
+  "${extra_args[@]}" \
+   "$script_file"
